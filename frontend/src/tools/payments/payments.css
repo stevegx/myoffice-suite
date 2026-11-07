@@ -1,0 +1,34 @@
+.topbar:has(+ .content > .payments-workspace),
+.content:has(> .payments-workspace) {
+  max-width: 88rem;
+}
+
+.content:has(> .payments-workspace) {
+  padding-top: clamp(1.25rem, 3vw, 2.5rem);
+}
+
+.payments-glass {
+  --glass-edge: color-mix(in srgb, var(--border) 72%, white);
+  background:
+    radial-gradient(ellipse at 95% 0%, color-mix(in srgb, var(--glow) 58%, transparent), transparent 57%),
+    linear-gradient(140deg, color-mix(in srgb, var(--card) 78%, transparent), color-mix(in srgb, var(--card) 37%, transparent));
+  border: 1px solid var(--glass-edge);
+  box-shadow: inset 0 1px color-mix(in srgb, white 64%, transparent), 0 20px 52px var(--shadow);
+  backdrop-filter: blur(22px) saturate(125%);
+}
+
+.dark .payments-glass {
+  --glass-edge: color-mix(in srgb, var(--border) 88%, var(--primary));
+  box-shadow: inset 0 1px color-mix(in srgb, var(--primary) 18%, transparent), 0 20px 52px var(--shadow);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .payment-stage {
+    animation: payment-reveal 180ms ease-out both;
+  }
+
+  @keyframes payment-reveal {
+    from { opacity: 0.75; }
+    to { opacity: 1; }
+  }
+}

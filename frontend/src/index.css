@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+}
+
+:root {
+  color-scheme: light;
+  --background: #edf4ff;
+  --foreground: #14294c;
+  --card: #fff;
+  --primary: #245bba;
+  --primary-foreground: #fff;
+  --muted-foreground: #456087;
+  --border: #adc5e8;
+  --glow: #a8cdff;
+  --shadow: #305e9c1a;
+}
+
+.dark {
+  color-scheme: dark;
+  --background: #081427;
+  --foreground: #edf4ff;
+  --card: #172a47;
+  --primary: #a2c8ff;
+  --primary-foreground: #102343;
+  --muted-foreground: #b1c5e0;
+  --border: #395579;
+  --glow: #1d4176;
+  --shadow: #0004;
+}
+
+@layer base {
+  body {
+    @apply min-h-screen bg-background text-foreground antialiased;
+    background-image: radial-gradient(ellipse 62rem 31rem at 90% 0%, var(--glow), transparent);
+  }
+
+  a:focus-visible { @apply outline-2 outline-offset-4 outline-primary; }
+  h1 { @apply text-4xl font-semibold tracking-tight sm:text-6xl; }
+}
+
+.glass {
+  @apply backdrop-blur-xl;
+  box-shadow: 0 12px 36px var(--shadow);
+}
+
+.topbar {
+  @apply mx-auto flex max-w-[76rem] items-center justify-between gap-3 border-b border-border/45 px-4 py-4 sm:px-8;
+}
+
+.brand { @apply inline-flex items-center gap-2 text-sm font-bold sm:text-base; }
+.brand-icon { @apply grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground; }
+.topbar nav > a { @apply rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:text-primary aria-[current=page]:bg-card/70 aria-[current=page]:text-foreground; }
+.content { @apply mx-auto max-w-[76rem] px-4 pt-8 pb-16 sm:px-8 sm:pt-10; }
+.topbar:has(+ .content > .repricing-workspace),
+.content:has(> .repricing-workspace) { max-width: 100rem; }
+
+.tool-grid { @apply grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3; }
+.panel { @apply p-5; }
+.actions { @apply mt-4 flex flex-wrap items-center gap-4; }
+.actions a { @apply text-sm font-semibold text-primary underline underline-offset-4; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .page-enter { animation: page-enter 240ms ease-out both; }
+  @keyframes page-enter {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool-grid > li { transition: none !important; }
+}

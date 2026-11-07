@@ -1,0 +1,15 @@
+**/App_Data/
+**/node_modules/
+**/dist/
+backend/data/
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.env.*
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
