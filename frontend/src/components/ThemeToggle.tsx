@@ -4,12 +4,18 @@ import { Button } from './ui/button'
 
 const preferenceKey = 'myoffice.theme'
 
-export function ThemeToggle() {
-  const [theme, setTheme] = useState(() => {
+function initialTheme() {
+  try {
     const saved = localStorage.getItem(preferenceKey)
     if (saved === 'light' || saved === 'dark') return saved
-    return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-  })
+  } catch {
+    // The system preference is available when storage is blocked.
+  }
+  return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
+export function ThemeToggle() {
+  const [theme, setTheme] = useState(initialTheme)
 
   useLayoutEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark')
@@ -20,8 +26,12 @@ export function ThemeToggle() {
 
   return (
     <Button variant="outline" size="icon" aria-label={label} title={label} onClick={() => {
-      localStorage.setItem(preferenceKey, next)
       setTheme(next)
+      try {
+        localStorage.setItem(preferenceKey, next)
+      } catch {
+        // Keep the selected theme for the current session.
+      }
     }}>
       {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
     </Button>

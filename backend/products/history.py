@@ -15,21 +15,21 @@ def effective_date(value) -> str:
     return date.fromisoformat(value).isoformat()
 
 
-def save_prices(path: Path, day: str, records: list[tuple[str, str, str, int]], batch: str | None = None) -> int:
+def save_prices(path: Path, day: str, records: list[tuple[str, str, str, int | None]], batch: str | None = None) -> int:
     source = "import" if batch else "confirmed"
     with closing(sqlite3.connect(path, autocommit=True)) as connection:
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("BEGIN IMMEDIATE")
         count = 0
         for sku, name, channel, cents in records:
-            if batch is None:
+            if cents is not None and batch is None:
                 last = connection.execute("""
                     SELECT Cents FROM ProductPrices WHERE Sku = ? AND Channel = ? AND EffectiveOn = ?
                     ORDER BY Id DESC LIMIT 1
                 """, (sku, channel, day)).fetchone()
                 if last and last[0] == cents:
                     continue
-            elif connection.execute(
+            elif cents is not None and connection.execute(
                 "SELECT 1 FROM ProductPrices WHERE Batch = ? AND Sku = ? AND Channel = ?", (batch, sku, channel),
             ).fetchone():
                 continue
@@ -38,6 +38,8 @@ def save_prices(path: Path, day: str, records: list[tuple[str, str, str, int]], 
                 ON CONFLICT(Sku) DO UPDATE SET Name = excluded.Name, NameOn = excluded.NameOn
                 WHERE excluded.NameOn >= Products.NameOn
             """, (sku, name, day))
+            if cents is None:
+                continue
             connection.execute("""
                 INSERT INTO ProductPrices (Sku, Channel, EffectiveOn, Cents, Source, Batch)
                 VALUES (?, ?, ?, ?, ?, ?)
@@ -50,12 +52,19 @@ def save_prices(path: Path, day: str, records: list[tuple[str, str, str, int]], 
 def record_import(path: Path, day: str, raw: bytes, rows: list[dict]) -> dict:
     duplicates = Counter(row["sku"] for row in rows if row["sku"])
     records = []
+    valid_prices = 0
     for row in rows:
-        sku, name, cents = row["sku"], row["product"], read_cents(row["our"])
-        if sku and name and duplicates[sku] == 1 and cents and 0 < cents <= 999_999_999:
-            records.append((sku, name, "skroutz", cents))
+        sku, name = row["sku"], row["product"]
+        if not sku or not name or duplicates[sku] != 1:
+            continue
+        cents = read_cents(row["our"])
+        if cents is None or not 0 < cents <= 999_999_999:
+            cents = None
+        else:
+            valid_prices += 1
+        records.append((sku, name, "skroutz", cents))
     batch = sha256(day.encode("ascii") + b"\0" + raw).hexdigest()
-    return {"enabled": True, "saved": save_prices(path, day, records, batch), "skipped": len(rows) - len(records)}
+    return {"enabled": True, "saved": save_prices(path, day, records, batch), "skipped": len(rows) - valid_prices}
 
 
 def list_products(path: Path, query: str, page: int) -> dict:

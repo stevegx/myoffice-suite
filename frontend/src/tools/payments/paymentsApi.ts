@@ -1,3 +1,5 @@
+import { jsonOptions, requestJson } from '../../api/request'
+
 export type Period = {
   start: string
   end: string
@@ -39,6 +41,7 @@ export function dateLabel(value: string) {
 }
 
 export function readUpload(file: File): Promise<string> {
+  if (!file.size) return Promise.reject(new Error('Το αρχείο είναι κενό. Επίλεξε άλλο αρχείο.'))
   if (file.size > 8 * 1024 * 1024) {
     return Promise.reject(new Error('Το μέγιστο μέγεθος είναι 8 MB ανά αρχείο.'))
   }
@@ -46,20 +49,11 @@ export function readUpload(file: File): Promise<string> {
     const reader = new FileReader()
     reader.onload = () => resolve(String(reader.result).split(',')[1])
     reader.onerror = () => reject(new Error('Δεν ήταν δυνατή η ανάγνωση του αρχείου.'))
+    reader.onabort = () => reject(new Error('Η ανάγνωση του αρχείου διακόπηκε.'))
     reader.readAsDataURL(file)
   })
 }
 
-export async function paymentRequest(endpoint: string, data: object) {
-  const response = await fetch(`/api/payments/${endpoint}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-    cache: 'no-store',
-  })
-  if (!response.ok) {
-    const error = await response.json().catch(() => null)
-    throw new Error(typeof error?.detail === 'string' ? error.detail : 'Το αίτημα απέτυχε. Δοκίμασε ξανά.')
-  }
-  return response
+export function paymentRequest<T>(endpoint: string, data: object) {
+  return requestJson<T>(`/api/payments/${endpoint}`, jsonOptions(data))
 }

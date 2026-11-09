@@ -4,6 +4,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { ArrowDown, ArrowUp, ArrowUpDown, Ban, FileText, GripVertical, RotateCcw, Trash2 } from 'lucide-react'
 import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Button } from '../../components/ui/button'
+import { ErrorState } from '../../components/ui/feedback'
 import { ColumnFilter } from '../payments/ColumnFilter'
 import { searchKey } from '../payments/paymentsApi'
 import { floorLabels, formatPrice, type Evaluated, type Row } from './rules'
@@ -120,6 +121,7 @@ export function RepricingTable({ entries, onOpen, onEdit, onDelete }: {
   const [sort, setSort] = useState<{ key: Key; descending: boolean }>()
   const [group, setGroup] = useState<Key>()
   const [order, setOrder] = useState(readColumnOrder)
+  const [orderError, setOrderError] = useState(false)
   const [editing, setEditing] = useState<{ entry: Evaluated; key: Key; draft: string }>()
   const [page, setPage] = useState(0)
   const scrollport = useRef<HTMLDivElement>(null)
@@ -134,8 +136,9 @@ export function RepricingTable({ entries, onOpen, onEdit, onDelete }: {
     setOrder(next)
     try {
       localStorage.setItem(columnOrderKey, JSON.stringify(next))
+      setOrderError(false)
     } catch {
-      // The order still applies in this session.
+      setOrderError(true)
     }
   }
 
@@ -181,6 +184,8 @@ export function RepricingTable({ entries, onOpen, onEdit, onDelete }: {
 
   return (
     <section aria-label="Πίνακας προϊόντων" className="min-w-0 overflow-hidden rounded-2xl border border-border/65 bg-card">
+      {orderError && <ErrorState className="mx-4 mt-4" title="Η σειρά των στηλών δεν αποθηκεύτηκε"
+        detail="Η νέα σειρά ισχύει για όσο παραμένει ανοιχτός ο πίνακας." />}
       <div className="grid gap-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_17rem] sm:px-5">
         <input type="search" aria-label="Αναζήτηση προϊόντων" placeholder="Αναζήτηση ονόματος, SKU ή καταστήματος"
           className={control} value={query} onChange={(event) => { setQuery(event.target.value); setPage(0) }} />
