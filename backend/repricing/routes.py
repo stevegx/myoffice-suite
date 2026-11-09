@@ -7,10 +7,12 @@ import xlwt
 from fastapi import APIRouter, Request, Response
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill
+from openpyxl.worksheet.hyperlink import Hyperlink
 
 from ..payments.routes import decode_file, process
 from ..payments.workbooks import MAX_EXPANDED_BYTES, MAX_ROWS, normalized, read_cents
 from ..products.history import effective_date, record_import
+from .report import append_report
 
 router = APIRouter(prefix="/api/repricing", tags=["Repricing"])
 MARKET_COLUMNS = ("Product", "SKU", "Our price", "Cheapest", "Shop", "Rank", "Competitors")
@@ -138,7 +140,7 @@ def export_skroutz(data: dict) -> bytes:
 def export_site(data: dict) -> bytes:
     rows = export_rows(data, "site")
     output = StringIO(newline="")
-    writer = csv.writer(output, delimiter=";")
+    writer = csv.writer(output, delimiter=",")
     writer.writerow(("Κωδικός προϊόντος", "Όνομα", "Κανονική τιμή", "Meta: dicha_skroutz_feed_price"))
     writer.writerows(rows)
     return output.getvalue().encode("utf-8-sig")
@@ -149,6 +151,8 @@ def export_summary(data: dict) -> bytes:
     if (not isinstance(deltas, list) or type(total) is not int or not len(deltas) <= total <= MAX_ROWS
             or not all(type(value) is int and value != 0 for value in deltas)):
         raise ValueError("Μη έγκυρα δεδομένα σύνοψης.")
+    if "report" not in data:
+        raise ValueError("Λείπουν τα στοιχεία της αναλυτικής αναφοράς. Ανανέωσε τη σελίδα του Repricing και δοκίμασε ξανά.")
     counts = Counter((0 if abs(value) <= 10 else 1 if abs(value) <= 50 else 2 if abs(value) <= 100 else 3, value > 0) for value in deltas)
     book = Workbook()
     sheet = book.active
@@ -175,6 +179,11 @@ def export_summary(data: dict) -> bytes:
         sheet[f"C{index}"].fill = PatternFill("solid", fgColor="FAEEE7")
     for column, width in (("A", 53), ("B", 16), ("C", 16)):
         sheet.column_dimensions[column].width = width
+    append_report(book, data["report"], total)
+    report_link = sheet["A15"]
+    report_link.value = "Άνοιγμα αναλυτικής αναφοράς →"
+    report_link.hyperlink = Hyperlink(ref=report_link.coordinate, location="'Αναλυτική αναφορά'!A1")
+    report_link.style = "Hyperlink"
     stream = BytesIO()
     book.save(stream)
     return stream.getvalue()
@@ -188,10 +197,12 @@ async def upload(request: Request):
 
 @router.post("/export/{kind}")
 async def export(kind: str, request: Request):
+    workbook = (export_summary, "repricing-report.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     outputs = {
         "skroutz": (export_skroutz, "repricing-skroutz.xls", "application/vnd.ms-excel"),
         "site": (export_site, "repricing-site.csv", "text/csv"),
-        "summary": (export_summary, "repricing-summary.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+        "summary": workbook,
+        "report": workbook,
     }
     if kind not in outputs:
         return Response(status_code=404)

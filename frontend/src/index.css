@@ -54,16 +54,20 @@
   box-shadow: 0 12px 36px var(--shadow);
 }
 
+#root { @apply flex min-h-dvh flex-col; }
+
 .topbar {
-  @apply mx-auto flex max-w-[76rem] items-center justify-between gap-3 border-b border-border/45 px-4 py-4 sm:px-8;
+  @apply mx-auto flex w-full max-w-[76rem] items-center justify-between gap-3 border-b border-border/45 px-4 py-4 sm:px-8;
 }
 
 .brand { @apply inline-flex items-center gap-2 text-sm font-bold sm:text-base; }
 .brand-icon { @apply grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground; }
 .topbar nav > a { @apply rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:text-primary aria-[current=page]:bg-card/70 aria-[current=page]:text-foreground; }
-.content { @apply mx-auto max-w-[76rem] px-4 pt-8 pb-16 sm:px-8 sm:pt-10; }
+.content { @apply mx-auto w-full min-w-0 max-w-[76rem] flex-1 px-4 pt-8 pb-12 sm:px-8 sm:pt-10; }
+.app-footer { @apply mx-auto w-full max-w-[76rem] border-t border-border/45 px-4 py-5 text-center text-xs text-muted-foreground sm:px-8; }
 .topbar:has(+ .content > .repricing-workspace),
-.content:has(> .repricing-workspace) { max-width: 100rem; }
+.content:has(> .repricing-workspace),
+.content:has(> .repricing-workspace) + .app-footer { max-width: 100rem; }
 
 .tool-grid { @apply grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3; }
 .panel { @apply p-5; }

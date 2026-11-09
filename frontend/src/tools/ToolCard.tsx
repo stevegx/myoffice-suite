@@ -1,10 +1,10 @@
-import { Activity, ArrowRight, ArrowUpRight, Package, Tags, UsersRound, Wallet } from 'lucide-react'
+import { Activity, ArrowLeftRight, ArrowRight, ArrowUpRight, Package, Tags, UsersRound, Wallet } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 export type Tool = { id: string; name: string; description: string; externalUrl?: string }
 
 export function ToolCard({ tool, handle }: { tool: Tool; handle?: ReactNode }) {
-  const Icon = tool.externalUrl ? UsersRound : tool.id === 'products' ? Package : tool.id === 'repricing' ? Tags : tool.id === 'payments' ? Wallet : Activity
+  const Icon = tool.externalUrl ? UsersRound : tool.id === 'converter' ? ArrowLeftRight : tool.id === 'products' ? Package : tool.id === 'repricing' ? Tags : tool.id === 'payments' ? Wallet : Activity
   const Arrow = tool.externalUrl ? ArrowUpRight : ArrowRight
   return (
     <div className="relative h-full min-w-0 overflow-hidden rounded-2xl border border-border/75 bg-card shadow-sm">

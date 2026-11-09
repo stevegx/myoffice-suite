@@ -48,6 +48,9 @@ export default function App() {
           ) : <ToolMenu />}
         </ToolErrorBoundary>
       </main>
+      <footer className="app-footer">
+        <p lang="en">Created and designed by <span className="font-semibold text-foreground">Stavros Vetsikas</span></p>
+      </footer>
     </>
   )
 }

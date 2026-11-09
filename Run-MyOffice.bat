@@ -38,7 +38,7 @@ if errorlevel 1 (
     "%PYTHON_EXE%" -m pip install -r backend\requirements.txt || exit /b 1
 )
 echo Starting the backend on http://127.0.0.1:5072
-"%PYTHON_EXE%" -m uvicorn backend.main:app --host 127.0.0.1 --port 5072
+"%PYTHON_EXE%" -m uvicorn backend.main:app --host 127.0.0.1 --port 5072 --reload --reload-dir backend
 exit /b %errorlevel%
 
 :frontend
