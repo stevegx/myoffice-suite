@@ -2,7 +2,7 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def initialize(path: Path) -> None:
@@ -84,6 +84,13 @@ def initialize(path: Path) -> None:
                 ("converter", "CSV ↔ Excel", "Μετατροπή αρχείων με επιλογή φύλλου και διαχωριστικού."),
             )
             connection.execute("PRAGMA user_version = 5")
+
+        if version < 6:
+            connection.execute(
+                "INSERT INTO Tools VALUES (?, ?, ?) ON CONFLICT(Id) DO NOTHING",
+                ("price-calculator", "Price Calculator", "Υπολογισμός ελάχιστης τιμής Skroutz ή μέγιστης τιμής αγοράς με επιλογή ΦΠΑ."),
+            )
+            connection.execute("PRAGMA user_version = 6")
 
         connection.execute("COMMIT")
 
