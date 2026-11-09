@@ -1,6 +1,8 @@
 import { Suspense, useSyncExternalStore } from 'react'
 import ToolMenu from './tools/ToolMenu'
 import { ThemeToggle } from './components/ThemeToggle'
+import { ToolErrorBoundary } from './components/ToolErrorBoundary'
+import { ErrorState, LoadingState } from './components/ui/feedback'
 import { toolViews } from './tools/toolViews'
 
 function subscribeToHash(callback: () => void) {
@@ -29,17 +31,26 @@ export default function App() {
         </nav>
       </header>
       <main className="content">
-        {toolView ? (
-          <Suspense fallback={<p role="status">Φόρτωση εργαλείου…</p>}>
-            {toolView}
-          </Suspense>
-        ) : toolId ? (
-          <section>
-            <h1>Το εργαλείο δεν βρέθηκε</h1>
-            <a href="#/">Επιστροφή στα εργαλεία</a>
-          </section>
-        ) : <ToolMenu />}
+        <ToolErrorBoundary key={toolId} fallback={
+          <ErrorState title="Η σελίδα δεν άνοιξε" detail="Φόρτωσε ξανά τη σελίδα για να ανοίξεις το εργαλείο."
+            retry={() => window.location.reload()}>
+            {toolId && <a className="text-primary underline" href="#/">Επιστροφή στα εργαλεία</a>}
+          </ErrorState>
+        }>
+          {toolView ? (
+            <Suspense fallback={<LoadingState title="Φόρτωση εργαλείου…" rows={3} />}>
+              {toolView}
+            </Suspense>
+          ) : toolId ? (
+            <ErrorState title="Το εργαλείο δεν βρέθηκε">
+              <a className="text-primary underline" href="#/">Επιστροφή στα εργαλεία</a>
+            </ErrorState>
+          ) : <ToolMenu />}
+        </ToolErrorBoundary>
       </main>
+      <footer className="app-footer">
+        <p lang="en">Created and designed by <span className="font-semibold text-foreground">Stavros Vetsikas</span></p>
+      </footer>
     </>
   )
 }

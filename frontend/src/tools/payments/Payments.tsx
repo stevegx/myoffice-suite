@@ -1,7 +1,9 @@
 import { ArrowLeft, ArrowRight, CalendarDays, Check, Download, Info } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../components/ui/button'
-import { submitDownload } from '../../lib/submitDownload'
+import { ErrorState, LoadingState } from '../../components/ui/feedback'
+import { downloadFile } from '../../lib/downloadFile'
+import { useTask } from '../../lib/useTask'
 import { PaymentReview } from './PaymentReview'
 import { UploadBox } from './UploadBox'
 import { dateLabel, paymentRequest, readUpload, type MatchResult, type Period } from './paymentsApi'
@@ -17,11 +19,9 @@ export default function Payments() {
   const [result, setResult] = useState<MatchResult>()
   const [reviewRevision, setReviewRevision] = useState(0)
   const [codes, setCodes] = useState<Record<number, string>>({})
-  const [busy, setBusy] = useState('')
-  const [error, setError] = useState('')
+  const { busy, error, run, clearError } = useTask()
   const [step, setStep] = useState<Step>('files')
   const stepTitle = useRef<HTMLHeadingElement>(null)
-  const downloadTarget = `payments-download-${useId()}`
   const partialErp = payout && result && (result.erpFirst > payout.period.erpStart || result.erpLast < payout.period.erpEnd)
   const review = step === 'review'
 
@@ -29,23 +29,10 @@ export default function Payments() {
     stepTitle.current?.focus()
   }, [step])
 
-  async function run(message: string, action: () => Promise<void>) {
-    setBusy(message)
-    setError('')
-    try {
-      await action()
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'Κάτι πήγε στραβά. Δοκίμασε ξανά.')
-    } finally {
-      setBusy('')
-    }
-  }
-
   function selectPayout(file: File) {
-    void run('Ανάγνωση πληρωμής…', async () => {
+    void run('Ανάγνωση πληρωμής Skroutz…', 'Η ανάγνωση της πληρωμής απέτυχε', async () => {
       const content = await readUpload(file)
-      const response = await paymentRequest('period', { skroutz: content })
-      const period: Period = await response.json()
+      const period = await paymentRequest<Period>('period', { skroutz: content })
       setPayout({ filename: file.name, content, period })
       setErpName(undefined)
       setResult(undefined)
@@ -55,9 +42,8 @@ export default function Payments() {
 
   function selectErp(file: File) {
     if (!payout) return
-    void run('Αντιστοίχιση παραγγελιών…', async () => {
-      const response = await paymentRequest('match', { skroutz: payout.content, erp: await readUpload(file) })
-      const matched: MatchResult = await response.json()
+    void run('Αντιστοίχιση παραγγελιών με το ERP…', 'Η αντιστοίχιση με το ERP απέτυχε', async () => {
+      const matched = await paymentRequest<MatchResult>('match', { skroutz: payout.content, erp: await readUpload(file) })
       setCodes(Object.fromEntries(matched.rows.filter((row) => row.code).map((row) => [row.row, row.code])))
       setResult(matched)
       setErpName(file.name)
@@ -67,8 +53,8 @@ export default function Payments() {
 
   function download() {
     if (!payout || !result) return
-    setError('')
-    submitDownload('/api/payments/export', downloadTarget, { skroutz: payout.content, codes, filename: payout.filename })
+    void run('Προετοιμασία Excel…', 'Η λήψη του Excel απέτυχε', () =>
+      downloadFile('/api/payments/export', { skroutz: payout.content, codes, filename: payout.filename }))
   }
 
   return (
@@ -77,7 +63,7 @@ export default function Payments() {
         <div className="mb-5 flex flex-wrap items-center justify-between gap-x-8 gap-y-3 sm:mb-6">
           {review ? (
             <button type="button" className="inline-flex cursor-pointer items-center gap-1.5 rounded text-sm text-muted-foreground hover:text-primary"
-              onClick={() => setStep('files')}><ArrowLeft size={15} aria-hidden="true" /> Πίσω στα αρχεία</button>
+              disabled={!!busy} onClick={() => { clearError(); setStep('files') }}><ArrowLeft size={15} aria-hidden="true" /> Πίσω στα αρχεία</button>
           ) : (
             <a href="#/" className="inline-flex items-center gap-1.5 rounded text-sm text-muted-foreground hover:text-primary">
               <ArrowLeft size={15} aria-hidden="true" /> Όλα τα εργαλεία
@@ -134,31 +120,22 @@ export default function Payments() {
               <span>Το export ERP περιέχει εγγραφές από {dateLabel(result.erpFirst)} έως {dateLabel(result.erpLast)}. Έλεγξε αν καλύπτει όλο το ζητούμενο διάστημα.</span>
             </p>
           )}
-          {busy && <p className="mt-5 text-sm text-primary" role="status">{busy}</p>}
-          {error && <p className="mt-5 text-sm text-red-700 dark:text-red-300" role="alert">{error}</p>}
+          {busy && <LoadingState className="mt-5" title={busy} />}
+          {error && <ErrorState className="mt-5" {...error} />}
           <div className="mt-5 flex justify-end sm:mt-6">
-            <Button className="h-11 w-full sm:w-auto" disabled={!result || !!busy} onClick={() => setStep('review')}>
+            <Button className="h-11 w-full sm:w-auto" disabled={!result || !!busy} onClick={() => { clearError(); setStep('review') }}>
               Συνέχεια στον έλεγχο <ArrowRight size={17} aria-hidden="true" />
             </Button>
           </div>
         </section>
       )}
-      <iframe hidden name={downloadTarget} title="Λήψη αρχείου πληρωμών" onLoad={(event) => {
-        const doc = event.currentTarget.contentDocument
-        if (doc?.location.pathname !== '/api/payments/export') return
-        try {
-          const response = JSON.parse(doc.body.textContent ?? '')
-          setError(typeof response.detail === 'string' ? response.detail : 'Η λήψη του Excel απέτυχε.')
-        } catch {
-          setError('Η λήψη του Excel απέτυχε.')
-        }
-      }} />
       {result && (
         <div hidden={step !== 'review'}>
           {review && partialErp && <p className="mb-4 flex items-start gap-2 text-xs text-amber-950 dark:text-amber-200" role="status">
             <Info size={15} className="shrink-0" aria-hidden="true" /> Το ERP καλύπτει {dateLabel(result.erpFirst)} έως {dateLabel(result.erpLast)}.
           </p>}
-          {review && error && <p className="mb-4 text-sm text-red-700 dark:text-red-300" role="alert">{error}</p>}
+          {review && busy && <LoadingState className="mb-4" title={busy} />}
+          {review && error && <ErrorState className="mb-4" {...error} retry={download} />}
           <PaymentReview key={reviewRevision} rows={result.rows} codes={codes} erpNamesByCode={result.erpNamesByCode} busy={!!busy}
             onCode={(row, code) => setCodes((previous) => ({ ...previous, [row]: code }))} />
         </div>

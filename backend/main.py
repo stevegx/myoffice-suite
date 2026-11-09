@@ -6,6 +6,8 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from .converter import router as converter_router
+
 from .database import connect_readonly, initialize
 from .payments.routes import router as payments_router
 from .products.routes import router as products_router
@@ -41,6 +43,7 @@ app.state.product_history_enabled = os.environ.get("MYOFFICE_PRODUCT_HISTORY", "
 app.include_router(payments_router)
 app.include_router(repricing_router)
 app.include_router(products_router)
+app.include_router(converter_router)
 
 
 @app.get("/api/tools")

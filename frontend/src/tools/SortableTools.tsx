@@ -4,6 +4,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { GripVertical } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '../components/ui/button'
+import { ErrorState } from '../components/ui/feedback'
 import { ToolCard, type Tool } from './ToolCard'
 
 const orderKey = 'myoffice.tool-order'
@@ -35,6 +36,7 @@ function SortableTool({ tool }: { tool: Tool }) {
 
 export default function SortableTools({ tools }: { tools: Tool[] }) {
   const [order, setOrder] = useState(readOrder)
+  const [orderError, setOrderError] = useState(false)
   const byId = new Map(tools.map((tool) => [tool.id, tool]))
   const ids = [...new Set([...order.filter((id) => byId.has(id)), ...byId.keys()])]
   const sensors = useSensors(
@@ -43,19 +45,28 @@ export default function SortableTools({ tools }: { tools: Tool[] }) {
   )
 
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter}
-      accessibility={{ screenReaderInstructions: { draggable: 'Πάτησε κενό για επιλογή, βέλη για μετακίνηση, κενό για τοποθέτηση ή Escape για ακύρωση.' } }}
-      onDragEnd={({ active, over }) => {
-        if (!over || active.id === over.id) return
-        const next = arrayMove(ids, ids.indexOf(String(active.id)), ids.indexOf(String(over.id)))
-        setOrder(next)
-        localStorage.setItem(orderKey, JSON.stringify(next))
-      }}>
-      <SortableContext items={ids} strategy={rectSortingStrategy}>
-        <ul className="tool-grid">
-          {ids.map((id) => <SortableTool key={id} tool={byId.get(id)!} />)}
-        </ul>
-      </SortableContext>
-    </DndContext>
+    <>
+      {orderError && <ErrorState className="mb-4" title="Η σειρά των καρτών δεν αποθηκεύτηκε"
+        detail="Η νέα σειρά ισχύει για όσο παραμένει ανοιχτό το μενού." />}
+      <DndContext sensors={sensors} collisionDetection={closestCenter}
+        accessibility={{ screenReaderInstructions: { draggable: 'Πάτησε κενό για επιλογή, βέλη για μετακίνηση, κενό για τοποθέτηση ή Escape για ακύρωση.' } }}
+        onDragEnd={({ active, over }) => {
+          if (!over || active.id === over.id) return
+          const next = arrayMove(ids, ids.indexOf(String(active.id)), ids.indexOf(String(over.id)))
+          setOrder(next)
+          try {
+            localStorage.setItem(orderKey, JSON.stringify(next))
+            setOrderError(false)
+          } catch {
+            setOrderError(true)
+          }
+        }}>
+        <SortableContext items={ids} strategy={rectSortingStrategy}>
+          <ul className="tool-grid">
+            {ids.map((id) => <SortableTool key={id} tool={byId.get(id)!} />)}
+          </ul>
+        </SortableContext>
+      </DndContext>
+    </>
   )
 }

@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useApi } from '../../api/useApi'
 import { Button } from '../../components/ui/button'
 import { Card } from '../../components/ui/card'
+import { EmptyState, ErrorState, LoadingState } from '../../components/ui/feedback'
 import { dateLabel, money } from '../payments/paymentsApi'
 import { PriceChart, type Price } from './PriceChart'
 
@@ -34,11 +35,11 @@ function ProductHistory({ sku, onBack }: { sku: string; onBack: () => void }) {
           </div>
           {latest && <p className="text-sm text-muted-foreground">Τελευταία τιμή <strong className="ml-1 text-lg text-foreground">{displayPrice(latest.cents)}</strong></p>}
         </header>
-        {result.status === 'loading' && <p className="p-3" role="status">Φόρτωση ιστορικού…</p>}
-        {result.status === 'error' && <div className="flex flex-wrap items-center gap-3 p-3">
-          <p role="alert">Δεν βρέθηκε ιστορικό για το SKU ή ο έλεγχος απέτυχε.</p>
-          <Button variant="outline" onClick={retry}>Δοκίμασε ξανά</Button>
-        </div>}
+        {result.status === 'loading' && <LoadingState title="Φόρτωση ιστορικού τιμών…" rows={3} />}
+        {result.status === 'error' && (result.code === 404
+          ? <EmptyState>Δεν βρέθηκε προϊόν με αυτό το SKU.</EmptyState>
+          : <ErrorState title="Δεν ήταν δυνατή η φόρτωση του ιστορικού" detail={result.detail}
+            retry={result.code === 403 ? undefined : retry} />)}
         {result.status === 'ready' && (
           <div className="overflow-hidden rounded-xl border border-border/65 bg-card">
             <div className="flex items-center gap-2 border-b border-border/55 px-4 py-3" aria-label="Κανάλι τιμών">
@@ -78,13 +79,10 @@ function ProductList({ query, page, onPage, onOpen }: {
   query: string; page: number; onPage: (page: number) => void; onOpen: (sku: string) => void
 }) {
   const [result, retry] = useApi<Catalog>(`/api/products?q=${encodeURIComponent(query)}&page=${page}`)
-  if (result.status === 'loading') return <p role="status">Φόρτωση προϊόντων…</p>
-  if (result.status === 'error') return <div className="flex flex-wrap items-center gap-3">
-    <p role="alert">Δεν ήταν δυνατή η φόρτωση του καταλόγου.</p>
-    <Button variant="outline" onClick={retry}>Δοκίμασε ξανά</Button>
-  </div>
-  if (!result.data.enabled) return <p>Το ιστορικό είναι απενεργοποιημένο σε αυτή την εγκατάσταση.</p>
-  if (!result.data.items.length) return <p className="text-muted-foreground">{query ? 'Δεν βρέθηκε προϊόν για αυτή την αναζήτηση.' : 'Ο κατάλογος γεμίζει όταν εισάγεις ένα αρχείο στο Repricing.'}</p>
+  if (result.status === 'loading') return <LoadingState title="Φόρτωση προϊόντων…" rows={4} />
+  if (result.status === 'error') return <ErrorState title="Δεν ήταν δυνατή η φόρτωση του καταλόγου" detail={result.detail} retry={retry} />
+  if (!result.data.enabled) return <EmptyState>Το ιστορικό είναι απενεργοποιημένο σε αυτή την εγκατάσταση.</EmptyState>
+  if (!result.data.items.length) return <EmptyState>{query ? 'Δεν βρέθηκε προϊόν για αυτή την αναζήτηση.' : 'Ο κατάλογος γεμίζει όταν εισάγεις ένα αρχείο στο Repricing.'}</EmptyState>
   const { items, total, pageSize } = result.data
   return (
     <div className="min-w-0 overflow-hidden rounded-xl border border-border/65 bg-card">

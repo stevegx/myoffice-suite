@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { useApi } from '../api/useApi'
-import { Button } from '../components/ui/button'
-import { Card } from '../components/ui/card'
+import { ToolErrorBoundary } from '../components/ToolErrorBoundary'
+import { ErrorState, LoadingState } from '../components/ui/feedback'
 import { ToolCard, type Tool } from './ToolCard'
 import { toolViews } from './toolViews'
 
@@ -29,20 +29,21 @@ export default function ToolMenu() {
         <h1 id="tools-heading" className="text-3xl font-semibold tracking-tight sm:text-4xl">Εργαλεία γραφείου</h1>
         <p className="mt-2 text-sm text-muted-foreground">Άνοιξε το εργαλείο που χρειάζεσαι.</p>
       </div>
-      {catalog.status === 'loading' && <p className="mb-4 text-sm text-muted-foreground" role="status">Φόρτωση εργαλείων…</p>}
+      {catalog.status === 'loading' && <LoadingState className="mb-4" title="Φόρτωση εργαλείων…" />}
       {catalog.status === 'error' && (
-        <Card className="panel mb-5">
-          <p role="alert">Δεν ήταν δυνατή η φόρτωση του μενού.</p>
-          <div className="actions">
-            <Button onClick={reload}>Δοκίμασε ξανά</Button>
-            <a href="#/system-status">Κατάσταση συστήματος</a>
-          </div>
-        </Card>
+        <ErrorState className="mb-5" title="Δεν ήταν δυνατή η φόρτωση του μενού" detail={catalog.detail} retry={reload}>
+          <a className="text-primary underline" href="#/system-status">Κατάσταση συστήματος</a>
+        </ErrorState>
       )}
       {tools.length > 1 ? (
-        <Suspense fallback={cards}>
-          <SortableTools tools={tools} />
-        </Suspense>
+        <ToolErrorBoundary fallback={<>
+          <ErrorState className="mb-5" title="Η αναδιάταξη καρτών δεν είναι διαθέσιμη" detail="Μπορείς να ανοίξεις τα εργαλεία από τις κάρτες." />
+          {cards}
+        </>}>
+          <Suspense fallback={cards}>
+            <SortableTools tools={tools} />
+          </Suspense>
+        </ToolErrorBoundary>
       ) : cards}
     </section>
   )

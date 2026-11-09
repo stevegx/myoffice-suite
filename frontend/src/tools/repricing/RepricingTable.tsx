@@ -1,52 +1,21 @@
 import { closestCenter, DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { arrayMove, horizontalListSortingStrategy, SortableContext, sortableKeyboardCoordinates, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ArrowDown, ArrowUp, ArrowUpDown, Ban, FileText, GripVertical, RotateCcw, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, ArrowUpDown, Ban, FileText, GripVertical, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Button } from '../../components/ui/button'
+import { ErrorState } from '../../components/ui/feedback'
 import { ColumnFilter } from '../payments/ColumnFilter'
 import { searchKey } from '../payments/paymentsApi'
-import { floorLabels, formatPrice, type Evaluated, type Row } from './rules'
+import { BulkRowsDialog } from './BulkRowsDialog'
+import { floorLabels, type Evaluated, type Row } from './rules'
+import { byKey, columnOrderKey, columns, defaults, issue, value, type Column, type Key } from './tableColumns'
 
 const pageSize = 30
-const columns = [
-  { key: 'product', label: 'Προϊόν', width: 320 },
-  { key: 'sku', label: 'SKU', width: 105 },
-  { key: 'our', label: 'Τιμή Skroutz', width: 105, numeric: true },
-  { key: 'cheapest', label: 'Φθηνότερος', width: 105, numeric: true },
-  { key: 'minSkr', label: 'Ελαχ. Skroutz', width: 121, numeric: true },
-  { key: 'skrOverride', label: 'Νέα Skroutz', width: 116, numeric: true },
-  { key: 'status', label: 'Έλεγχος', width: 190 },
-  { key: 'delta', label: 'Μεταβολή', width: 108, numeric: true },
-  { key: 'siteOverride', label: 'Νέα site', width: 105, numeric: true },
-  { key: 'sourceOur', label: 'Αρχική Skroutz', width: 132, numeric: true },
-  { key: 'minSite', label: 'Ελαχ. site', width: 118, numeric: true },
-  { key: 'shop', label: 'Shop', width: 138 },
-  { key: 'rank', label: 'Rank', width: 91, numeric: true },
-  { key: 'competitors', label: 'Competitors', width: 128, numeric: true },
-  { key: 'minName', label: 'Όνομα ελαχίστων', width: 215 },
-] as const
-type Column = typeof columns[number]
-type Key = Column['key']
 type Filter = 'all' | 'changes' | 'checks' | 'export' | 'large' | 'rejected'
 const collator = new Intl.Collator('el', { numeric: true, sensitivity: 'base' })
 const percent = new Intl.NumberFormat('el-GR', { maximumFractionDigits: 1, signDisplay: 'exceptZero' })
-const columnOrderKey = 'myoffice.repricing-column-order'
-const defaults = columns.map(({ key }) => key)
-const byKey = new Map(columns.map((column) => [column.key, column]))
-
-function readColumnOrder(): Key[] {
-  try {
-    const stored: unknown = JSON.parse(localStorage.getItem(columnOrderKey) ?? 'null')
-    if (Array.isArray(stored)) {
-      const valid = stored.filter((key): key is Key => byKey.has(key))
-      return [...new Set([...valid, ...defaults])]
-    }
-  } catch {
-    // A blocked or stale preference should not prevent editing.
-  }
-  return defaults
-}
+const checkboxStyle = 'size-4 cursor-pointer accent-primary focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary disabled:opacity-50'
 
 function SortableHeader({ column, direction, filter, children }: {
   column: Column
@@ -74,31 +43,6 @@ function SortableHeader({ column, direction, filter, children }: {
   )
 }
 
-function issue({ result }: Evaluated) {
-  return result.duplicate ? 'Διπλό SKU'
-    : result.missingIdentity ? 'Λείπει όνομα ή SKU'
-      : result.missingOriginal ? 'Μη έγκυρη αρχική τιμή'
-        : result.warning ? 'Έλεγχος κατάταξης / τιμής'
-          : result.skrCheck !== 'ok' ? floorLabels[result.skrCheck]
-            : result.siteCheck !== 'ok' ? `Site · ${floorLabels[result.siteCheck]}`
-              : result.site !== null && result.skr !== null && result.site >= result.skr ? 'Site ≥ Skroutz' : ''
-}
-
-function status(entry: Evaluated) {
-  const { row, result } = entry
-  if (row.excluded) return 'Απορρίφθηκε'
-  if (result.readySkr || result.readySite) return issue(entry) || 'Προς έγκριση'
-  return issue(entry) || (result.changedSkr || result.changedSite ? 'Εκτός export' : 'Χωρίς αλλαγή')
-}
-
-function value({ row, result }: Evaluated, key: Key): string {
-  if (key === 'status') return status({ row, result })
-  if (key === 'delta') return result.skr === null || result.missingOriginal ? '' : formatPrice(result.delta)
-  if (key === 'skrOverride') return result.skr === null ? '' : formatPrice(result.skr)
-  if (key === 'siteOverride') return result.site === null ? '' : formatPrice(result.site)
-  return row[key].trim()
-}
-
 function compare(column: Column, left: string, right: string, descending = false) {
   if (!left || !right) return Number(!left) - Number(!right)
   const a = Number(left.replace(',', '.'))
@@ -108,20 +52,26 @@ function compare(column: Column, left: string, right: string, descending = false
   return descending ? -comparison : comparison
 }
 
-export function RepricingTable({ entries, onOpen, onEdit, onDelete }: {
+export function RepricingTable({ entries, order, onOrderChange, onOpen, onEdit, onEditRows, onDelete }: {
   entries: Evaluated[]
+  order: Key[]
+  onOrderChange: (order: Key[]) => void
   onOpen: (id: number) => void
   onEdit: (id: number, values: Partial<Row>) => void
-  onDelete: (row: Row) => void
+  onEditRows: (changes: ReadonlyMap<number, Partial<Row>>) => void
+  onDelete: (ids: ReadonlySet<number>) => void
 }) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [filters, setFilters] = useState<Partial<Record<Key, Set<string>>>>({})
   const [sort, setSort] = useState<{ key: Key; descending: boolean }>()
   const [group, setGroup] = useState<Key>()
-  const [order, setOrder] = useState(readColumnOrder)
+  const [orderError, setOrderError] = useState(false)
   const [editing, setEditing] = useState<{ entry: Evaluated; key: Key; draft: string }>()
   const [page, setPage] = useState(0)
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<number>>(() => new Set())
+  const [bulkAction, setBulkAction] = useState<'edit' | 'delete'>()
+  const [bulkNotice, setBulkNotice] = useState('')
   const scrollport = useRef<HTMLDivElement>(null)
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -131,11 +81,12 @@ export function RepricingTable({ entries, onOpen, onEdit, onDelete }: {
   const customized = order.some((key, index) => key !== defaults[index])
 
   function saveOrder(next: Key[]) {
-    setOrder(next)
+    onOrderChange(next)
     try {
       localStorage.setItem(columnOrderKey, JSON.stringify(next))
+      setOrderError(false)
     } catch {
-      // The order still applies in this session.
+      setOrderError(true)
     }
   }
 
@@ -174,6 +125,41 @@ export function RepricingTable({ entries, onOpen, onEdit, onDelete }: {
   }
   const pageCount = Math.max(1, Math.ceil(visible.length / pageSize))
   const current = Math.min(page, pageCount - 1)
+  const pageRows = visible.slice(current * pageSize, (current + 1) * pageSize)
+  const selectedCount = selectedIds.size
+  const visibleSelected = selectedCount ? visible.filter(({ row }) => selectedIds.has(row.id)).length : 0
+  const pageSelected = pageRows.filter(({ row }) => selectedIds.has(row.id)).length
+  const allPageSelected = pageRows.length > 0 && pageSelected === pageRows.length
+  const dialogEntries = bulkAction ? entries.filter(({ row }) => selectedIds.has(row.id)) : []
+
+  function selectRows(ids: readonly number[], checked: boolean) {
+    setBulkNotice('')
+    setSelectedIds((previous) => {
+      const next = new Set(previous)
+      for (const id of ids) {
+        if (checked) next.add(id)
+        else next.delete(id)
+      }
+      return next
+    })
+  }
+
+  function removeRows(ids: ReadonlySet<number>) {
+    onDelete(ids)
+    selectRows([...ids], false)
+  }
+
+  function setExcluded(excluded: boolean) {
+    const changes = new Map<number, Partial<Row>>()
+    for (const { row } of entries) {
+      if (selectedIds.has(row.id) && row.excluded !== excluded) changes.set(row.id, { excluded })
+    }
+    if (changes.size) onEditRows(changes)
+    setBulkNotice(changes.size
+      ? `${excluded ? 'Εξαιρέθηκαν' : 'Επανεντάχθηκαν στον έλεγχο'} ${changes.size} γραμμές.`
+      : 'Οι επιλεγμένες γραμμές είναι ήδη σε αυτή την κατάσταση.')
+  }
+
   useLayoutEffect(() => {
     if (scrollport.current) scrollport.current.scrollTop = 0
   }, [current, filters, filter, group, query, sort])
@@ -181,6 +167,8 @@ export function RepricingTable({ entries, onOpen, onEdit, onDelete }: {
 
   return (
     <section aria-label="Πίνακας προϊόντων" className="min-w-0 overflow-hidden rounded-2xl border border-border/65 bg-card">
+      {orderError && <ErrorState className="mx-4 mt-4" title="Η σειρά των στηλών δεν αποθηκεύτηκε"
+        detail="Η νέα σειρά ισχύει για όσο παραμένει ανοιχτός ο πίνακας." />}
       <div className="grid gap-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_17rem] sm:px-5">
         <input type="search" aria-label="Αναζήτηση προϊόντων" placeholder="Αναζήτηση ονόματος, SKU ή καταστήματος"
           className={control} value={query} onChange={(event) => { setQuery(event.target.value); setPage(0) }} />
@@ -197,7 +185,7 @@ export function RepricingTable({ entries, onOpen, onEdit, onDelete }: {
         </select>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-3 text-xs text-muted-foreground sm:px-5">
-        <span>Σύρε τη λαβή μιας επικεφαλίδας για να αλλάξεις τη σειρά των στηλών.</span>
+        <span>Σύρε τις επικεφαλίδες από τη λαβή για να αλλάξεις τη σειρά των στηλών.</span>
         {customized && <Button variant="ghost" className="h-7 text-xs" onClick={() => saveOrder(defaults)}>Επαναφορά σειράς στηλών</Button>}
       </div>
       {(!!activeFilters.length || grouping) && (
@@ -211,6 +199,37 @@ export function RepricingTable({ entries, onOpen, onEdit, onDelete }: {
           </div>
         </div>
       )}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/55 bg-primary/5 px-4 py-3 sm:px-5"
+        aria-label="Μαζικές ενέργειες" role="group">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold tabular-nums" role="status">
+            {selectedCount ? `${selectedCount} επιλεγμένες γραμμές` : 'Μαζικές ενέργειες'}
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {selectedCount > visibleSelected ? `${selectedCount - visibleSelected} εκτός των τρεχόντων φίλτρων.`
+              : 'Επίλεξε γραμμές για επεξεργασία, εξαίρεση ή διαγραφή.'}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" className="h-8 px-3 text-xs"
+            disabled={!visible.length || (visibleSelected === visible.length && selectedCount === visible.length)}
+            onClick={() => { setSelectedIds(new Set(visible.map(({ row }) => row.id))); setBulkNotice('') }}>
+            Επιλογή όλων στα φίλτρα · {visible.length}
+          </Button>
+          {selectedCount > 0 && <>
+            <Button className="h-8 px-3 text-xs" onClick={() => setBulkAction('edit')}>
+              <Pencil size={14} aria-hidden="true" /> Επεξεργασία
+            </Button>
+            <Button variant="outline" className="h-8 px-3 text-xs" onClick={() => setExcluded(true)}>Εξαίρεση</Button>
+            <Button variant="outline" className="h-8 px-3 text-xs" onClick={() => setExcluded(false)}>Επαναφορά</Button>
+            <Button variant="outline" className="h-8 px-3 text-xs text-red-700 dark:text-red-300" onClick={() => setBulkAction('delete')}>
+              <Trash2 size={14} aria-hidden="true" /> Διαγραφή
+            </Button>
+            <Button variant="ghost" className="h-8 px-3 text-xs" onClick={() => { setSelectedIds(new Set()); setBulkNotice('') }}>Καθαρισμός επιλογής</Button>
+          </>}
+        </div>
+        {bulkNotice && <p role="status" className="basis-full text-xs font-medium text-primary">{bulkNotice}</p>}
+      </div>
       <div ref={scrollport} className="max-h-[min(62dvh,42rem)] overflow-auto border-y border-border/60"
         role="region" aria-label="Τιμές προϊόντων" tabIndex={0}>
         <DndContext sensors={sensors} collisionDetection={closestCenter}
@@ -224,10 +243,16 @@ export function RepricingTable({ entries, onOpen, onEdit, onDelete }: {
           }}>
         <SortableContext items={order} strategy={horizontalListSortingStrategy}>
         <table className="w-full table-fixed border-separate border-spacing-0 text-left text-sm [--actions-width:42px] [--product-width:260px] sm:[--actions-width:112px] sm:[--product-width:320px]"
-          style={{ minWidth: `calc(var(--actions-width) + var(--product-width) + ${columns.filter(({ key }) => key !== 'product').reduce((total, column) => total + column.width, 0)}px)` }}>
-          <colgroup><col style={{ width: 'var(--actions-width)' }} />{orderedColumns.map(({ key, width }) => <col key={key} style={{ width: key === 'product' ? 'var(--product-width)' : width }} />)}</colgroup>
+          style={{ minWidth: `calc(40px + var(--actions-width) + var(--product-width) + ${columns.filter(({ key }) => key !== 'product').reduce((total, column) => total + column.width, 0)}px)` }}>
+          <colgroup><col style={{ width: 40 }} /><col style={{ width: 'var(--actions-width)' }} />{orderedColumns.map(({ key, width }) => <col key={key} style={{ width: key === 'product' ? 'var(--product-width)' : width }} />)}</colgroup>
           <thead className="sticky top-0 z-10 bg-card text-xs text-muted-foreground">
             <tr>
+              <th scope="col" className="sticky left-0 z-10 border-b border-r border-border/60 bg-card text-center">
+                <input type="checkbox" className={checkboxStyle} aria-label="Επιλογή γραμμών σε αυτή τη σελίδα"
+                  title="Επιλογή γραμμών σε αυτή τη σελίδα" disabled={!pageRows.length} checked={allPageSelected}
+                  ref={(input) => { if (input) input.indeterminate = pageSelected > 0 && !allPageSelected }}
+                  onChange={(event) => selectRows(pageRows.map(({ row }) => row.id), event.currentTarget.checked)} />
+              </th>
               <th scope="col" className="border-b border-border/60 bg-primary/5 px-2 py-2"><span className="sr-only sm:not-sr-only">Ενέργειες</span></th>
               {orderedColumns.map((column) => {
                 const { key, label } = column
@@ -252,24 +277,29 @@ export function RepricingTable({ entries, onOpen, onEdit, onDelete }: {
             </tr>
           </thead>
           <tbody>
-            {visible.slice(current * pageSize, (current + 1) * pageSize).map((entry, index) => {
+            {pageRows.map((entry, index) => {
               const { row, result } = entry
               const label = row.sku || String(row.id)
+              const checked = selectedIds.has(row.id)
               const groupValue = grouping ? viewValue(entry, grouping.key) : ''
               const showGroup = grouping && (index === 0 || viewValue(visible[current * pageSize + index - 1], grouping.key) !== groupValue)
               return (
                 <Fragment key={row.id}>
                 {showGroup && (
                   <tr className="bg-primary/8">
-                    <th colSpan={columns.length + 1} className="px-3 py-2 text-xs font-semibold text-primary">
+                    <th colSpan={columns.length + 2} className="px-3 py-2 text-xs font-semibold text-primary">
                       {grouping.label} · {groupValue || '(Κενά)'} · {groupCounts.get(groupValue)}
                     </th>
                   </tr>
                 )}
-                <tr className={`h-14 hover:bg-primary/5 [&>td]:border-b [&>td]:border-border/45 ${row.excluded ? 'bg-background text-muted-foreground' : ''}`}
+                <tr className={`h-14 hover:bg-primary/5 motion-safe:transition-colors [&>td]:border-b [&>td]:border-border/45 ${checked ? 'bg-primary/10 hover:bg-primary/12' : row.excluded ? 'bg-background' : ''} ${row.excluded ? 'text-muted-foreground' : ''}`}
                   onDoubleClick={(event) => {
                     if (!(event.target instanceof Element && event.target.closest('button, input, textarea'))) onOpen(row.id)
                   }}>
+                  <td className={`sticky left-0 z-1 border-r bg-card text-center ${checked ? 'bg-linear-to-r from-primary/10 to-primary/10' : ''}`}>
+                    <input type="checkbox" className={checkboxStyle} checked={checked} aria-label={`Επιλογή SKU ${label}, γραμμή ${row.id}`}
+                      onChange={(event) => selectRows([row.id], event.currentTarget.checked)} />
+                  </td>
                   <td className="px-1 sm:px-2">
                     <div className="flex flex-col items-center gap-0.5 sm:flex-row sm:gap-1">
                       <Button variant="ghost" size="icon" className="size-7 sm:size-8" title="Λεπτομέρειες" aria-label={`Λεπτομέρειες ${label}`} onClick={() => onOpen(row.id)}>
@@ -281,7 +311,7 @@ export function RepricingTable({ entries, onOpen, onEdit, onDelete }: {
                         {row.excluded ? <RotateCcw size={15} aria-hidden="true" /> : <Ban size={15} aria-hidden="true" />}
                       </Button>
                       <Button variant="ghost" size="icon" className="size-7 text-red-700 sm:size-8 dark:text-red-300" title="Διαγραφή"
-                        aria-label={`Διαγραφή ${label}`} onClick={() => onDelete(row)}><Trash2 size={15} aria-hidden="true" /></Button>
+                        aria-label={`Διαγραφή ${label}`} onClick={() => removeRows(new Set([row.id]))}><Trash2 size={15} aria-hidden="true" /></Button>
                     </div>
                   </td>
                   {orderedColumns.map((column) => {
@@ -362,6 +392,11 @@ export function RepricingTable({ entries, onOpen, onEdit, onDelete }: {
           <Button variant="outline" className="h-8" disabled={current + 1 === pageCount} onClick={() => setPage(current + 1)}>Επόμενη</Button>
         </div>
       </div>
+      {bulkAction && <BulkRowsDialog action={bulkAction} entries={dialogEntries} hiddenCount={selectedCount - visibleSelected}
+        onClose={() => setBulkAction(undefined)} onDelete={() => removeRows(selectedIds)} onEdit={(changes) => {
+          onEditRows(changes)
+          setBulkNotice(`Ενημερώθηκαν ${changes.size} γραμμές.`)
+        }} />}
     </section>
   )
 }

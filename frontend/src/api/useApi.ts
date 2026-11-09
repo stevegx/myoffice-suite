@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
+import { RequestError, requestJson } from './request'
 
 type ApiState<T> =
   | { status: 'loading' }
   | { status: 'ready'; data: T }
-  | { status: 'error' }
+  | { status: 'error'; detail: string; code?: number }
 
 export function useApi<T>(path: string) {
   const [result, setResult] = useState<ApiState<T>>({ status: 'loading' })
@@ -14,13 +15,14 @@ export function useApi<T>(path: string) {
 
     async function load() {
       try {
-        const response = await fetch(path, { signal: controller.signal, cache: 'no-store' })
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-
-        const data: T = await response.json()
+        const data = await requestJson<T>(path, { signal: controller.signal })
         if (!controller.signal.aborted) setResult({ status: 'ready', data })
-      } catch {
-        if (!controller.signal.aborted) setResult({ status: 'error' })
+      } catch (error) {
+        if (!controller.signal.aborted) setResult({
+          status: 'error',
+          detail: error instanceof RequestError ? error.message : 'Δοκίμασε ξανά.',
+          code: error instanceof RequestError ? error.status : undefined,
+        })
       }
     }
 
