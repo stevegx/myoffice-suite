@@ -52,7 +52,7 @@ function compare(column: Column, left: string, right: string, descending = false
   return descending ? -comparison : comparison
 }
 
-export function RepricingTable({ entries, order, onOrderChange, onOpen, onEdit, onEditRows, onDelete }: {
+export function RepricingTable({ entries, order, onOrderChange, onOpen, onEdit, onEditRows, onDelete, deleteDisabled }: {
   entries: Evaluated[]
   order: Key[]
   onOrderChange: (order: Key[]) => void
@@ -60,6 +60,7 @@ export function RepricingTable({ entries, order, onOrderChange, onOpen, onEdit, 
   onEdit: (id: number, values: Partial<Row>) => void
   onEditRows: (changes: ReadonlyMap<number, Partial<Row>>) => void
   onDelete: (ids: ReadonlySet<number>) => void
+  deleteDisabled: boolean
 }) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
@@ -222,7 +223,7 @@ export function RepricingTable({ entries, order, onOrderChange, onOpen, onEdit, 
             </Button>
             <Button variant="outline" className="h-8 px-3 text-xs" onClick={() => setExcluded(true)}>Εξαίρεση</Button>
             <Button variant="outline" className="h-8 px-3 text-xs" onClick={() => setExcluded(false)}>Επαναφορά</Button>
-            <Button variant="outline" className="h-8 px-3 text-xs text-red-700 dark:text-red-300" onClick={() => setBulkAction('delete')}>
+            <Button variant="outline" className="h-8 px-3 text-xs text-red-700 dark:text-red-300" disabled={deleteDisabled} onClick={() => setBulkAction('delete')}>
               <Trash2 size={14} aria-hidden="true" /> Διαγραφή
             </Button>
             <Button variant="ghost" className="h-8 px-3 text-xs" onClick={() => { setSelectedIds(new Set()); setBulkNotice('') }}>Καθαρισμός επιλογής</Button>
@@ -311,7 +312,7 @@ export function RepricingTable({ entries, order, onOrderChange, onOpen, onEdit, 
                         {row.excluded ? <RotateCcw size={15} aria-hidden="true" /> : <Ban size={15} aria-hidden="true" />}
                       </Button>
                       <Button variant="ghost" size="icon" className="size-7 text-red-700 sm:size-8 dark:text-red-300" title="Διαγραφή"
-                        aria-label={`Διαγραφή ${label}`} onClick={() => removeRows(new Set([row.id]))}><Trash2 size={15} aria-hidden="true" /></Button>
+                        aria-label={`Διαγραφή ${label}`} disabled={deleteDisabled} onClick={() => removeRows(new Set([row.id]))}><Trash2 size={15} aria-hidden="true" /></Button>
                     </div>
                   </td>
                   {orderedColumns.map((column) => {

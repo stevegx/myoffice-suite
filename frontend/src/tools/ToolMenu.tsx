@@ -15,12 +15,13 @@ const paperTool: Tool = {
   externalUrl: 'https://paper-product-tool.onrender.com/',
 }
 
-const dailyIds = ['payments', 'repricing', 'products']
+const dailyIds = ['payments', 'repricing', 'products', 'orders', 'supplier-catalogs']
 const utilityIds = ['price-calculator', 'converter']
 const descriptions: Record<string, string> = {
   payments: 'Αντιστοίχισε πληρωμές Skroutz με παραστατικά ERP.',
   repricing: 'Έλεγξε, επεξεργάσου και εξήγαγε αλλαγές τιμών.',
-  products: 'Βρες προϊόντα ανά SKU και δες το ιστορικό τιμών.',
+  products: 'Βρες προϊόντα ανά SKU, τιμές ERP, προσφορές και ιστορικό.',
+  orders: 'Σύγκρινε προσφορές και ετοίμασε παραγγελία ανά προμηθευτή.',
   'price-calculator': 'Ελάχιστη τιμή Skroutz ή μέγιστη τιμή αγοράς.',
   converter: 'Μετατροπή αρχείων και επιλογή διαχωριστικού.',
 }

@@ -6,6 +6,8 @@ const Repricing = lazy(() => import('./repricing/Repricing'))
 const Products = lazy(() => import('./products/Products'))
 const Converter = lazy(() => import('./converter/Converter'))
 const PriceCalculator = lazy(() => import('./price-calculator/PriceCalculator'))
+const Orders = lazy(() => import('./orders/Orders'))
+const SupplierCatalogs = lazy(() => import('./supplier-catalogs/SupplierCatalogs'))
 
 export const toolViews = new Map([
   ['system-status', createElement(SystemStatus)],
@@ -14,4 +16,6 @@ export const toolViews = new Map([
   ['products', createElement(Products)],
   ['converter', createElement(Converter)],
   ['price-calculator', createElement(PriceCalculator)],
+  ['orders', createElement(Orders)],
+  ['supplier-catalogs', createElement(SupplierCatalogs)],
 ])

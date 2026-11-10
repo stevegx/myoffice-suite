@@ -1,4 +1,4 @@
-import { Activity, ArrowLeftRight, ArrowRight, ArrowUpRight, Calculator, FileText, Package, Tags, Wallet } from 'lucide-react'
+import { Activity, ArrowLeftRight, ArrowRight, ArrowUpRight, Calculator, ClipboardList, FileSpreadsheet, FileText, Package, Tags, Wallet } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 export type Tool = { id: string; name: string; description: string; externalUrl?: string }
@@ -10,6 +10,8 @@ const icons: Record<string, typeof Activity | undefined> = {
   products: Package,
   repricing: Tags,
   payments: Wallet,
+  orders: ClipboardList,
+  'supplier-catalogs': FileSpreadsheet,
 }
 
 export function ToolCard({ tool, variant, handle }: { tool: Tool; variant: ToolCardVariant; handle?: ReactNode }) {

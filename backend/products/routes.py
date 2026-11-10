@@ -2,7 +2,8 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from ..payments.routes import process
 from ..payments.workbooks import MAX_ROWS
-from .history import effective_date, list_products, product_history, save_prices
+from .history import effective_date, save_prices
+from .overview import detail, list_catalog
 
 router = APIRouter(prefix="/api/products", tags=["Products"])
 
@@ -17,12 +18,12 @@ def require_history(request: Request):
 def catalog(request: Request, q: str = Query("", max_length=150), page: int = Query(1, ge=1, le=10000)):
     if not request.app.state.product_history_enabled:
         return {"enabled": False, "items": [], "total": 0, "pageSize": 30}
-    return {"enabled": True, **list_products(request.app.state.db_path, q, page)}
+    return {"enabled": True, **list_catalog(request.app.state.db_path, q, page)}
 
 
 @router.get("/history")
 def history(request: Request, sku: str = Query(min_length=1, max_length=1024)):
-    data = product_history(require_history(request), sku)
+    data = detail(require_history(request), sku)
     if data is None:
         raise HTTPException(404, "Δεν βρέθηκε το SKU.")
     return data

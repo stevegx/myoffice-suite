@@ -65,9 +65,10 @@
 .topbar nav > a { @apply rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:text-primary aria-[current=page]:bg-card/70 aria-[current=page]:text-foreground; }
 .content { @apply mx-auto w-full min-w-0 max-w-[76rem] flex-1 px-4 pt-8 pb-12 sm:px-8 sm:pt-10; }
 .app-footer { @apply mx-auto w-full max-w-[76rem] border-t border-border/45 px-4 py-5 text-center text-xs text-muted-foreground sm:px-8; }
-.topbar:has(+ .content > .repricing-workspace),
-.content:has(> .repricing-workspace),
-.content:has(> .repricing-workspace) + .app-footer { max-width: 100rem; }
+.topbar:has(+ .content > :is(.repricing-workspace, .orders-workspace)),
+.content:has(> :is(.repricing-workspace, .orders-workspace)),
+.content:has(> :is(.repricing-workspace, .orders-workspace)) + .app-footer { max-width: 100rem; }
+.content:has(> .products-workspace) { max-width: 90rem; }
 
 .tool-grid { @apply grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3; }
 .panel { @apply p-5; }

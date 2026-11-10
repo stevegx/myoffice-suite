@@ -10,9 +10,9 @@ function roundUp(numerator: bigint, denominator: bigint) {
   return (numerator + denominator - 1n) / denominator
 }
 
-export function minimumSkroutzPrice(purchase: bigint, vat: bigint) {
+export function minimumSkroutzPrice(purchase: bigint, vat: bigint, unitsPerCent = 1n) {
   // Divide by 0.91 and 0.915, then add VAT.
-  return roundUp(purchase * scale * (scale + vat), 9_100n * 9_150n)
+  return roundUp(purchase * scale * (scale + vat), 9_100n * 9_150n * unitsPerCent)
 }
 
 export function maximumPurchasePrice(skroutz: bigint, vat: bigint) {
