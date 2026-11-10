@@ -17,13 +17,14 @@ import { createRows, evaluateRows, minimumFields, minimumFor, summarize, type Im
 import { readColumnOrder } from './tableColumns'
 
 type ExportKind = 'skroutz' | 'site' | 'summary'
+type PriceExport = { rowIds: number[]; prices: ExportedPrice[] }
 const exportLabels: Record<ExportKind, string> = { skroutz: 'Skroutz XLS', site: 'Site CSV', summary: 'Σύνοψη και αναφορά Excel' }
 
 export default function Repricing() {
   const [market, setMarket] = useState<File>()
   const [minimums, setMinimums] = useState<File>()
   const [observedOn, setObservedOn] = useState(athensToday)
-  const [exports, setExports] = useState<Partial<Record<'skroutz' | 'site', ExportedPrice[]>>>({})
+  const [exports, setExports] = useState<Partial<Record<'skroutz' | 'site', PriceExport>>>({})
   const [data, setData] = useState<ImportResult>()
   const [rows, setRows] = useState<Row[]>([])
   const [columnOrder, setColumnOrder] = useState(readColumnOrder)
@@ -48,7 +49,7 @@ export default function Repricing() {
     void run('Ανάγνωση αρχείων και έλεγχος τιμών…', 'Η εισαγωγή απέτυχε', async () => {
       const [marketData, minimumData] = await Promise.all([readUpload(market), readUpload(minimums)])
       const imported = await requestJson<ImportResult>('/api/repricing/import', jsonOptions({
-        market: marketData, minimums: minimumData, observedOn,
+        market: marketData, minimums: minimumData, observedOn, minimumsOn: athensToday(),
       }))
       const importedRows = createRows(imported)
       setData(imported)
@@ -84,8 +85,13 @@ export default function Repricing() {
   }
 
   function remove(ids: ReadonlySet<number>) {
+    if (busy) return
     setDeleted(rows.filter((row) => ids.has(row.id)))
     setRows((previous) => previous.filter((row) => !ids.has(row.id)))
+    setExports((previous) => ({
+      skroutz: previous.skroutz?.rowIds.some((id) => ids.has(id)) ? undefined : previous.skroutz,
+      site: previous.site?.rowIds.some((id) => ids.has(id)) ? undefined : previous.site,
+    }))
   }
 
   function undoDelete() {
@@ -104,7 +110,7 @@ export default function Repricing() {
     void run(`Προετοιμασία αρχείου · ${exportLabels[kind]}…`, `Η εξαγωγή απέτυχε · ${exportLabels[kind]}`, async () => {
       if (kind === 'summary') {
         try {
-          await downloadFile('/api/repricing/export/report', { total: rows.length, deltas, report: buildReport(entries, columnOrder) })
+          await downloadFile('/api/repricing/export/report', { total: entries.length, deltas, report: buildReport(entries, columnOrder) })
         } catch (failure) {
           if (failure instanceof RequestError && failure.status === 404) {
             throw new Error('Ο server χρειάζεται επανεκκίνηση με τη νέα έκδοση για να δημιουργήσει την αναλυτική αναφορά.')
@@ -113,11 +119,12 @@ export default function Repricing() {
         }
         return
       }
-      const exported = (kind === 'site' ? site : skroutz).map(({ row, result }) => ({
+      const candidates = kind === 'site' ? site : skroutz
+      const prices = candidates.map(({ row, result }) => ({
         sku: row.sku.trim(), product: row.product.trim(), skr: result.skr, site: result.site,
       }))
-      await downloadFile(`/api/repricing/export/${kind}`, { rows: exported })
-      setExports((previous) => ({ ...previous, [kind]: exported }))
+      await downloadFile(`/api/repricing/export/${kind}`, { rows: prices })
+      setExports((previous) => ({ ...previous, [kind]: { rowIds: candidates.map(({ row }) => row.id), prices } }))
     })
   }
 
@@ -180,12 +187,16 @@ export default function Repricing() {
           {deleted.length > 0 && (
             <div className="mb-4 flex flex-wrap items-center gap-2 text-sm" role="status">
               <span>{deleted.length === 1 ? `Διαγράφηκε το SKU ${deleted[0].sku || deleted[0].id}.` : `Διαγράφηκαν ${deleted.length} γραμμές.`}</span>
-              <Button variant="outline" className="h-8" onClick={undoDelete}>Αναίρεση διαγραφής</Button>
+              <Button variant="outline" className="h-8" disabled={!!busy} onClick={undoDelete}>Αναίρεση διαγραφής</Button>
+              <p className="basis-full text-muted-foreground">
+                Οι γραμμές εξαιρούνται από όλες τις επόμενες εξαγωγές της τρέχουσας επεξεργασίας.
+                {data.history?.enabled && ' Για επιβεβαίωση τιμών, κάνε ξανά τις εξαγωγές που τις περιείχαν.'}
+              </p>
             </div>
           )}
           <RepricingTable entries={entries} order={columnOrder} onOrderChange={setColumnOrder}
-            onOpen={setSelected} onEdit={edit} onEditRows={editRows} onDelete={remove} />
-          {data.history?.enabled && <ConfirmPrices exports={exports} />}
+            onOpen={setSelected} onEdit={edit} onEditRows={editRows} onDelete={remove} deleteDisabled={!!busy} />
+          {data.history?.enabled && <ConfirmPrices exports={{ skroutz: exports.skroutz?.prices, site: exports.site?.prices }} />}
           <details className="mt-4 rounded-xl border border-border/70 bg-card p-4 text-sm">
             <summary className="cursor-pointer font-semibold">Σύνοψη Skroutz · {skroutz.length} αλλαγές προς εξαγωγή</summary>
             <table className="mt-3 w-full max-w-xl text-left">

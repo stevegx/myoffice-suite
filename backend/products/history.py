@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from collections import Counter
 from contextlib import closing
@@ -15,7 +16,12 @@ def effective_date(value) -> str:
     return date.fromisoformat(value).isoformat()
 
 
-def save_prices(path: Path, day: str, records: list[tuple[str, str, str, int | None]], batch: str | None = None) -> int:
+def save_prices(
+    path: Path, day: str, records: list[tuple[str, str, str, int | None]], batch: str | None = None,
+    market: list[tuple[str, int | None, str]] | None = None,
+    minimums: tuple[str, list[tuple[str, str, int | None]]] | None = None,
+    catalog_skus: list[str] | None = None,
+) -> int:
     source = "import" if batch else "confirmed"
     with closing(sqlite3.connect(path, autocommit=True)) as connection:
         connection.execute("PRAGMA foreign_keys = ON")
@@ -34,7 +40,7 @@ def save_prices(path: Path, day: str, records: list[tuple[str, str, str, int | N
             ).fetchone():
                 continue
             connection.execute("""
-                INSERT INTO Products VALUES (?, ?, ?)
+                INSERT INTO Products (Sku, Name, NameOn) VALUES (?, ?, ?)
                 ON CONFLICT(Sku) DO UPDATE SET Name = excluded.Name, NameOn = excluded.NameOn
                 WHERE excluded.NameOn >= Products.NameOn
             """, (sku, name, day))
@@ -45,13 +51,40 @@ def save_prices(path: Path, day: str, records: list[tuple[str, str, str, int | N
                 VALUES (?, ?, ?, ?, ?, ?)
             """, (sku, channel, day, cents, source, batch))
             count += 1
+        if batch is not None:
+            connection.executemany("""
+                UPDATE Products SET SkroutzName = ?, SkroutzNameOn = ?
+                WHERE Sku = ? AND (SkroutzNameOn IS NULL OR SkroutzNameOn <= ?)
+            """, ((name, day, sku, day) for sku, name, channel, _ in records if channel == "skroutz"))
+        if market is not None:
+            connection.executemany("""
+                INSERT INTO RepricingMarket (Sku, ObservedOn, Cents, Shop, Batch)
+                VALUES (?, ?, ?, ?, ?) ON CONFLICT(Sku, Batch) DO NOTHING
+            """, ((sku, day, cents, shop, batch) for sku, cents, shop in market))
+        if minimums is not None:
+            minimum_day, floors = minimums
+            connection.executemany("""
+                INSERT INTO ProductMinimums VALUES (?, ?, ?, ?)
+                ON CONFLICT(Sku) DO UPDATE SET Name = excluded.Name, Cents = excluded.Cents, ObservedOn = excluded.ObservedOn
+                WHERE excluded.ObservedOn >= ProductMinimums.ObservedOn
+            """, ((sku, name, cents, minimum_day) for sku, name, cents in floors))
+        if catalog_skus:
+            connection.execute("""
+                INSERT INTO RepricingCatalog VALUES (1, ?, ?)
+                ON CONFLICT(Id) DO UPDATE SET ObservedOn = excluded.ObservedOn, SkusJson = excluded.SkusJson
+                WHERE excluded.ObservedOn >= RepricingCatalog.ObservedOn
+            """, (day, json.dumps(catalog_skus, ensure_ascii=False)))
         connection.execute("COMMIT")
     return count
 
 
-def record_import(path: Path, day: str, raw: bytes, rows: list[dict]) -> dict:
-    duplicates = Counter(row["sku"] for row in rows if row["sku"])
+def record_import(
+    path: Path, day: str, raw: bytes, rows: list[dict],
+    minimums: tuple[str, list[tuple[str, str, int | None]]] | None = None,
+) -> dict:
+    duplicates = Counter(row["sku"] for row in rows if row["sku"] not in ("", "---", "#N/A"))
     records = []
+    market = []
     valid_prices = 0
     for row in rows:
         sku, name = row["sku"], row["product"]
@@ -63,27 +96,11 @@ def record_import(path: Path, day: str, raw: bytes, rows: list[dict]) -> dict:
         else:
             valid_prices += 1
         records.append((sku, name, "skroutz", cents))
+        cheapest = read_cents(row.get("cheapest"))
+        market.append((sku, cheapest if cheapest and 0 < cheapest <= 999_999_999 else None, row.get("shop", "")))
     batch = sha256(day.encode("ascii") + b"\0" + raw).hexdigest()
-    return {"enabled": True, "saved": save_prices(path, day, records, batch), "skipped": len(rows) - valid_prices}
-
-
-def list_products(path: Path, query: str, page: int) -> dict:
-    size = 30
-    where = "WHERE instr(casefold(Sku), ?) > 0 OR instr(casefold(Name), ?) > 0"
-    search = query.strip().casefold()
-    with closing(connect_readonly(path)) as connection:
-        connection.create_function("casefold", 1, str.casefold, deterministic=True)
-        total = connection.execute(f"SELECT count(*) FROM Products {where}", (search, search)).fetchone()[0]
-        rows = connection.execute(f"""
-            SELECT Sku AS sku, Name AS name,
-              (SELECT Cents FROM ProductPrices WHERE Sku = p.Sku AND Channel = 'skroutz'
-               ORDER BY EffectiveOn DESC, Id DESC LIMIT 1) AS skroutz,
-              (SELECT Cents FROM ProductPrices WHERE Sku = p.Sku AND Channel = 'site'
-               ORDER BY EffectiveOn DESC, Id DESC LIMIT 1) AS site
-            FROM Products p {where}
-            ORDER BY (instr(casefold(Sku), ?) = 1) DESC, Sku LIMIT ? OFFSET ?
-        """, (search, search, search, size, (page - 1) * size))
-        return {"items": [dict(row) for row in rows], "total": total, "pageSize": size}
+    saved = save_prices(path, day, records, batch, market, minimums, catalog_skus=list(duplicates))
+    return {"enabled": True, "saved": saved, "skipped": len(rows) - valid_prices}
 
 
 def product_history(path: Path, sku: str) -> dict | None:

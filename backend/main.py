@@ -9,9 +9,11 @@ from fastapi.staticfiles import StaticFiles
 from .converter import router as converter_router
 
 from .database import connect_readonly, initialize
+from .orders import router as orders_router
 from .payments.routes import router as payments_router
 from .products.routes import router as products_router
 from .repricing.routes import router as repricing_router
+from .supplier_catalogs import router as supplier_catalogs_router
 
 BACKEND_DIR = Path(__file__).resolve().parent
 FRONTEND_DIST = BACKEND_DIR.parent / "frontend" / "dist"
@@ -44,6 +46,8 @@ app.include_router(payments_router)
 app.include_router(repricing_router)
 app.include_router(products_router)
 app.include_router(converter_router)
+app.include_router(orders_router)
+app.include_router(supplier_catalogs_router)
 
 
 @app.get("/api/tools")

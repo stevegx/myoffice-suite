@@ -95,7 +95,16 @@ def import_files(data: dict, path=None) -> dict:
     minimums = read_minimums(decode_file(data, "minimums"))
     history = {"enabled": path is not None, "saved": 0, "skipped": 0}
     if path is not None and data.get("observedOn") is not None:
-        history = record_import(path, effective_date(data["observedOn"]), raw, market)
+        day = effective_date(data["observedOn"])
+        minimum_day = effective_date(data.get("minimumsOn", day))
+        floors = []
+        for sku, rows in minimums.items():
+            if len(rows) != 1 or sku in ("---", "#N/A"):
+                continue
+            entry = rows[0]
+            cents = read_cents(entry["minSkr"])
+            floors.append((sku, entry["name"] or sku, cents if cents and 0 < cents <= 999_999_999 else None))
+        history = record_import(path, day, raw, market, (minimum_day, floors))
     return {"rows": market, "minimums": minimums, "history": history}
 
 

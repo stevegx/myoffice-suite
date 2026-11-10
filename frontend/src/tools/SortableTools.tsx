@@ -5,37 +5,38 @@ import { GripVertical } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '../components/ui/button'
 import { ErrorState } from '../components/ui/feedback'
-import { ToolCard, type Tool } from './ToolCard'
+import { ToolCard, type Tool, type ToolCardVariant } from './ToolCard'
 
 const orderKey = 'myoffice.tool-order'
 
-function readOrder(): string[] {
+function readOrder(storageKey: string): string[] {
   try {
-    const order: unknown = JSON.parse(localStorage.getItem(orderKey) ?? '[]')
+    const order: unknown = JSON.parse(localStorage.getItem(storageKey) ?? localStorage.getItem(orderKey) ?? '[]')
     return Array.isArray(order) ? order.filter((id): id is string => typeof id === 'string') : []
   } catch {
     return []
   }
 }
 
-function SortableTool({ tool }: { tool: Tool }) {
+function SortableTool({ tool, variant }: { tool: Tool; variant: ToolCardVariant }) {
   const { attributes, listeners, setActivatorNodeRef, setNodeRef, transform, transition, isDragging } = useSortable({ id: tool.id })
   return (
     <li ref={setNodeRef} className={isDragging ? 'relative z-10 opacity-80' : undefined}
       style={{ transform: CSS.Transform.toString(transform), transition }}>
-      <ToolCard tool={tool} handle={
-        <Button variant="ghost" size="icon" className="absolute top-4 right-4 touch-none cursor-grab text-muted-foreground active:cursor-grabbing"
+      <ToolCard tool={tool} variant={variant} handle={
+        <Button variant="ghost" size="icon" className={`absolute right-2 size-8 touch-none cursor-grab text-muted-foreground active:cursor-grabbing ${variant === 'featured' ? 'top-2' : 'bottom-1'}`}
           title="Σύρε για αλλαγή σειράς"
           ref={setActivatorNodeRef} {...attributes} {...listeners} aria-label={`Μετακίνηση: ${tool.name}`}>
-          <GripVertical size={19} aria-hidden="true" />
+          <GripVertical size={16} aria-hidden="true" />
         </Button>
       } />
     </li>
   )
 }
 
-export default function SortableTools({ tools }: { tools: Tool[] }) {
-  const [order, setOrder] = useState(readOrder)
+export default function SortableTools({ tools, variant }: { tools: Tool[]; variant: ToolCardVariant }) {
+  const storageKey = `${orderKey}.${variant}`
+  const [order, setOrder] = useState(() => readOrder(storageKey))
   const [orderError, setOrderError] = useState(false)
   const byId = new Map(tools.map((tool) => [tool.id, tool]))
   const ids = [...new Set([...order.filter((id) => byId.has(id)), ...byId.keys()])]
@@ -55,7 +56,7 @@ export default function SortableTools({ tools }: { tools: Tool[] }) {
           const next = arrayMove(ids, ids.indexOf(String(active.id)), ids.indexOf(String(over.id)))
           setOrder(next)
           try {
-            localStorage.setItem(orderKey, JSON.stringify(next))
+            localStorage.setItem(storageKey, JSON.stringify(next))
             setOrderError(false)
           } catch {
             setOrderError(true)
@@ -63,7 +64,7 @@ export default function SortableTools({ tools }: { tools: Tool[] }) {
         }}>
         <SortableContext items={ids} strategy={rectSortingStrategy}>
           <ul className="tool-grid">
-            {ids.map((id) => <SortableTool key={id} tool={byId.get(id)!} />)}
+            {ids.map((id) => <SortableTool key={id} tool={byId.get(id)!} variant={variant} />)}
           </ul>
         </SortableContext>
       </DndContext>

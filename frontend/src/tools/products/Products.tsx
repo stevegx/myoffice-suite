@@ -1,79 +1,14 @@
-import { ArrowLeft, Search } from 'lucide-react'
-import { useState } from 'react'
+import { ArrowLeft, ChevronRight, Search } from 'lucide-react'
+import { useRef, useState } from 'react'
 import { useApi } from '../../api/useApi'
 import { Button } from '../../components/ui/button'
 import { Card } from '../../components/ui/card'
 import { EmptyState, ErrorState, LoadingState } from '../../components/ui/feedback'
-import { dateLabel, money } from '../payments/paymentsApi'
-import { PriceChart, type Price } from './PriceChart'
+import { ProductDetails } from './ProductDetails'
+import { salePrice, unitPrice, type Catalog } from './productData'
 
-type Product = { sku: string; name: string; skroutz: number | null; site: number | null }
-type Catalog = { enabled: boolean; items: Product[]; total: number; pageSize: number }
-type History = { sku: string; name: string; prices: Price[] }
-type Channel = Price['channel']
-
-function displayPrice(cents: number | null) {
-  return cents === null ? '—' : money.format(cents / 100)
-}
-
-function ProductHistory({ sku, onBack }: { sku: string; onBack: () => void }) {
-  const [result, retry] = useApi<History>(`/api/products/history?sku=${encodeURIComponent(sku)}`)
-  const [channel, setChannel] = useState<Channel>('skroutz')
-  const prices = result.status === 'ready' ? result.data.prices.filter((price) => price.channel === channel) : []
-  const latest = prices.at(-1)
-
-  return (
-    <div className="page-enter min-w-0">
-      <Button variant="ghost" className="mb-3 h-8 px-0 text-muted-foreground" onClick={onBack}>
-        <ArrowLeft size={15} aria-hidden="true" /> Πίσω στα προϊόντα
-      </Button>
-      <Card className="bg-linear-to-br from-card/85 to-primary/10 p-3 sm:p-5">
-        <header className="mb-5 flex flex-wrap items-end justify-between gap-4 px-2 pt-1">
-          <div className="min-w-0">
-            <p className="mb-1 text-xs font-medium text-primary">SKU · {sku}</p>
-            <h2 className="wrap-break-word text-lg font-semibold sm:text-xl">{result.status === 'ready' ? result.data.name : 'Ιστορικό τιμών'}</h2>
-          </div>
-          {latest && <p className="text-sm text-muted-foreground">Τελευταία τιμή <strong className="ml-1 text-lg text-foreground">{displayPrice(latest.cents)}</strong></p>}
-        </header>
-        {result.status === 'loading' && <LoadingState title="Φόρτωση ιστορικού τιμών…" rows={3} />}
-        {result.status === 'error' && (result.code === 404
-          ? <EmptyState>Δεν βρέθηκε προϊόν με αυτό το SKU.</EmptyState>
-          : <ErrorState title="Δεν ήταν δυνατή η φόρτωση του ιστορικού" detail={result.detail}
-            retry={result.code === 403 ? undefined : retry} />)}
-        {result.status === 'ready' && (
-          <div className="overflow-hidden rounded-xl border border-border/65 bg-card">
-            <div className="flex items-center gap-2 border-b border-border/55 px-4 py-3" aria-label="Κανάλι τιμών">
-              {(['skroutz', 'site'] as const).map((key) => (
-                <Button key={key} variant={channel === key ? 'default' : 'ghost'} className="h-8"
-                  aria-pressed={channel === key} onClick={() => setChannel(key)}>{key === 'skroutz' ? 'Skroutz' : 'Site'}</Button>
-              ))}
-            </div>
-            <PriceChart prices={prices} />
-            {!!prices.length && (
-              <div className="max-h-80 overflow-auto border-t border-border/55">
-                <table className="w-full min-w-[29rem] text-left text-sm">
-                  <thead className="sticky top-0 bg-card text-xs text-muted-foreground"><tr>
-                    {['Ημερομηνία', 'Από', 'Σε', 'Πηγή'].map((label) => <th key={label} scope="col" className="px-4 py-3">{label}</th>)}
-                  </tr></thead>
-                  <tbody>
-                    {[...prices].reverse().map((price) => (
-                      <tr key={price.id} className="border-t border-border/45 tabular-nums">
-                        <td className="px-4 py-3">{dateLabel(price.day)}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{displayPrice(price.previous)}</td>
-                        <td className="px-4 py-3 font-medium">{displayPrice(price.cents)}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{price.source === 'import' ? 'Αρχείο Repricing' : 'Επιβεβαιωμένη αλλαγή'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-      </Card>
-    </div>
-  )
-}
+const columns = 'lg:grid-cols-[minmax(0,1fr)_5.5rem_6.75rem_5.5rem_5.5rem_7.5rem]'
+const labels = ['Τιμή Skroutz', 'Ελάχ. δική μας', 'MinBuyPrice', 'ΤΤΑ', 'Καλύτερη προσφορά']
 
 function ProductList({ query, page, onPage, onOpen }: {
   query: string; page: number; onPage: (page: number) => void; onOpen: (sku: string) => void
@@ -81,25 +16,47 @@ function ProductList({ query, page, onPage, onOpen }: {
   const [result, retry] = useApi<Catalog>(`/api/products?q=${encodeURIComponent(query)}&page=${page}`)
   if (result.status === 'loading') return <LoadingState title="Φόρτωση προϊόντων…" rows={4} />
   if (result.status === 'error') return <ErrorState title="Δεν ήταν δυνατή η φόρτωση του καταλόγου" detail={result.detail} retry={retry} />
-  if (!result.data.enabled) return <EmptyState>Το ιστορικό είναι απενεργοποιημένο σε αυτή την εγκατάσταση.</EmptyState>
-  if (!result.data.items.length) return <EmptyState>{query ? 'Δεν βρέθηκε προϊόν για αυτή την αναζήτηση.' : 'Ο κατάλογος γεμίζει όταν εισάγεις ένα αρχείο στο Repricing.'}</EmptyState>
+  if (!result.data.enabled) return <EmptyState>Η κεντρική λίστα προϊόντων είναι διαθέσιμη στην προσωπική εγκατάσταση.</EmptyState>
+  if (!result.data.items.length) return <EmptyState>{query ? 'Δεν βρέθηκε προϊόν Repricing για αυτή την αναζήτηση.' : 'Ανέβασε το CSV στο Repricing για να εμφανιστούν τα προϊόντα εδώ.'}</EmptyState>
   const { items, total, pageSize } = result.data
   return (
     <div className="min-w-0 overflow-hidden rounded-xl border border-border/65 bg-card">
+      <div aria-hidden="true" className={`hidden gap-2.5 border-b border-border/55 bg-primary/6 px-3 py-2 text-xs font-semibold text-muted-foreground lg:grid ${columns}`}>
+        <span>SKU / Ονομασίες</span>
+        {labels.map((label) => <span key={label}>{label}</span>)}
+      </div>
       <ul className="divide-y divide-border/50">
-        {items.map((item) => (
-          <li key={item.sku}>
-            <button type="button" onClick={() => onOpen(item.sku)}
-              className="grid w-full min-w-0 cursor-pointer gap-2 px-4 py-4 text-left hover:bg-primary/5 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary motion-safe:transition-colors sm:grid-cols-[minmax(0,1fr)_9rem_8rem] sm:items-center">
-              <span className="min-w-0">
-                <span className="block truncate text-xs font-semibold text-primary">{item.sku}</span>
-                <span className="mt-1 block wrap-break-word font-medium">{item.name}</span>
-              </span>
-              <span className="text-sm"><span className="text-muted-foreground">Skroutz </span>{displayPrice(item.skroutz)}</span>
-              <span className="text-sm"><span className="text-muted-foreground">Site </span>{displayPrice(item.site)}</span>
-            </button>
-          </li>
-        ))}
+        {items.map((item) => {
+          const values = [salePrice(item.skroutz), unitPrice(item.minimum), unitPrice(item.minBuy), unitPrice(item.lastBuy), unitPrice(item.bestOffer?.price)]
+          const names = [['ERP', item.erpName], ['Skroutz', item.skroutzName], ['Repricing', item.legacyName]]
+          return (
+            <li key={item.sku}>
+              <button type="button" onClick={() => onOpen(item.sku)}
+                className={`grid w-full min-w-0 cursor-pointer grid-cols-3 gap-x-2.5 gap-y-1.5 px-3 py-2 text-left hover:bg-primary/5 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary motion-safe:transition-colors sm:grid-cols-5 lg:items-center ${columns}`}>
+                <span className="col-span-full flex min-w-0 items-center gap-2 lg:col-span-1">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[11px] leading-tight font-semibold text-primary">{item.sku}</span>
+                    {names.map(([source, name]) => name && (
+                      <span key={source} className="mt-0.5 block wrap-anywhere text-sm leading-tight font-medium">
+                        <span className="mr-1.5 text-[11px] font-normal text-muted-foreground">{source}</span>{name}
+                      </span>
+                    ))}
+                    {names.every(([, name]) => !name) && <span className="mt-0.5 block wrap-anywhere text-sm font-medium">{item.name}</span>}
+                  </span>
+                  <ChevronRight size={14} className="shrink-0 text-primary/65" aria-hidden="true" />
+                </span>
+                {values.map((value, index) => (
+                  <span key={labels[index]} className="min-w-0 text-xs leading-tight tabular-nums md:text-sm md:leading-tight">
+                    <span className="block text-[11px] text-muted-foreground lg:sr-only">{index === 4 ? 'Προσφορά' : labels[index]}</span>
+                    <span className="block wrap-break-word font-medium">{value}</span>
+                    {index === 1 && item.optimizer != null && <span className="block wrap-break-word text-[11px] text-muted-foreground">Αγορά · {unitPrice(item.optimizer)}</span>}
+                    {index === 4 && item.bestOffer && <span className="block truncate text-[11px] text-muted-foreground" title={item.bestOffer.supplier}>{item.bestOffer.supplier}</span>}
+                  </span>
+                ))}
+              </button>
+            </li>
+          )
+        })}
       </ul>
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/55 px-4 py-3 text-sm text-muted-foreground">
         <span>{(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} από {total}</span>
@@ -117,25 +74,39 @@ export default function Products() {
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
   const [sku, setSku] = useState(() => new URLSearchParams(window.location.hash.split('?')[1]).get('sku') ?? '')
+  const listRef = useRef<HTMLDivElement>(null)
+
+  function returnToListStart() {
+    const list = listRef.current
+    if (list && list.getBoundingClientRect().top < 0) list.scrollIntoView()
+  }
+
   return (
-    <section className="page-enter mx-auto max-w-5xl" aria-labelledby="products-heading">
+    <section className={`page-enter mx-auto ${sku ? 'max-w-6xl' : 'products-workspace'}`} aria-labelledby="products-heading">
       <a href="#/" className="mb-4 inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-primary">
         <ArrowLeft size={15} aria-hidden="true" /> Όλα τα εργαλεία
       </a>
-      <h1 id="products-heading" className="mb-6 text-3xl font-semibold sm:text-4xl">Προϊόντα</h1>
-      {sku ? <ProductHistory key={sku} sku={sku} onBack={() => setSku('')} /> : (
-        <Card className="bg-linear-to-br from-card/85 to-primary/10 p-4 sm:p-6">
-          <form className="mb-5 flex gap-2" onSubmit={(event) => {
+      <header className="mb-5">
+        <h1 id="products-heading" className="text-3xl font-semibold sm:text-4xl">Προϊόντα</h1>
+        <p className="mt-2 text-sm text-muted-foreground">Προϊόντα από το πιο πρόσφατο Repricing, με αντιστοίχιση ERP και ιστορικό ανά SKU.</p>
+      </header>
+      {sku ? <ProductDetails key={sku} sku={sku} onBack={() => setSku('')} /> : (
+        <Card ref={listRef} className="scroll-mt-2 bg-linear-to-br from-card/85 to-primary/10 p-3 sm:p-4">
+          <form className="sticky top-2 z-10 mb-3 flex gap-2 rounded-xl border border-border bg-card p-1.5 shadow-sm" onSubmit={(event) => {
             event.preventDefault()
+            returnToListStart()
             setQuery(draft.trim())
             setPage(1)
           }}>
-            <input type="search" aria-label="Αναζήτηση SKU ή προϊόντος" value={draft} maxLength={150}
-              onChange={(event) => setDraft(event.target.value)} placeholder="SKU ή όνομα προϊόντος"
-              className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-card px-3 text-sm" />
-            <Button type="submit"><Search size={16} aria-hidden="true" /> Αναζήτηση</Button>
+            <input type="search" aria-label="Αναζήτηση με SKU ή όνομα ERP ή Skroutz" value={draft} maxLength={150}
+              onChange={(event) => setDraft(event.target.value)} placeholder="SKU ή όνομα · π.χ. *gold*"
+              className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-background/45 px-2.5 text-sm" />
+            <Button type="submit" className="h-9 gap-1.5 rounded-lg px-2.5"><Search size={15} aria-hidden="true" /> Αναζήτηση</Button>
           </form>
-          <ProductList key={`${page}:${query}`} query={query} page={page} onPage={setPage} onOpen={setSku} />
+          <ProductList key={`${page}:${query}`} query={query} page={page} onPage={(nextPage) => {
+            returnToListStart()
+            setPage(nextPage)
+          }} onOpen={setSku} />
         </Card>
       )}
     </section>
