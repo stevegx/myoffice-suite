@@ -29,7 +29,7 @@ SOURCE_FIELDS = {
     "salesRecent": {"salesRecent": ("Ποσότητα", "Πωλήσεις")},
     "salesOther": {"salesOther": ("Ποσότητα", "Πωλήσεις")},
     "costs": {"minBuy": ("MinBuyPrice",), "lastBuy": ("ΤΤΑ", "TTA")},
-    "skroutz": {"skroutz": ("Price Optimizer price",)},
+    "skroutz": {"skroutz": ("Price Optimizer price", "Min Marketplace price")},
 }
 SOURCE_SHEETS = {"stock": "stock", "salesRecent": "sales", "salesOther": "Sheet5", "costs": "Sheet1", "skroutz": "skroutz"}
 
@@ -170,6 +170,12 @@ def save_catalog(raw: bytes, path) -> dict:
     products, includes_offers = parse_products(raw)
     if path is not None:
         merge_products(path, products, includes_offers)
+        if includes_offers:
+            from .supplier_catalogs import offer_mappings
+            from .supplier_catalog_store import seed_mappings
+
+            mappings = offer_mappings(raw, "Amardis")
+            seed_mappings(path, [("Amardis", code, sku) for code, sku in mappings.items()])
         products = read_products(path)
     return catalog_data(products, path)
 
@@ -314,6 +320,16 @@ def saved_catalog(request: Request):
 async def import_catalog(request: Request):
     path = request.app.state.db_path if request.app.state.product_history_enabled else None
     return await process(request, lambda data: save_catalog(decode_file(data, "file"), path))
+
+
+@router.post("/offer-reference")
+async def offer_reference(request: Request):
+    return await process(request, lambda data: parse_products(decode_file(data, "file"))[0])
+
+
+@router.get("/offer-reference")
+def saved_offer_reference(request: Request):
+    return read_products(request.app.state.db_path) if request.app.state.product_history_enabled else []
 
 
 @router.post("/master-costs")

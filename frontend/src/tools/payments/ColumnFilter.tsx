@@ -11,12 +11,13 @@ type Props = {
   label: (value: string) => string
   onApply: (selection?: Set<string>) => void
   onGroup?: () => void
+  searchMatcher?: (query: string) => (value: string) => boolean
 }
 
 const displayLimit = 150
 const blank = '(Κενά)'
 
-export function ColumnFilter({ title, getValues, selected, label, onApply, onGroup }: Props) {
+export function ColumnFilter({ title, getValues, selected, label, onApply, onGroup, searchMatcher }: Props) {
   const id = useId()
   const { panel, trigger, close } = useAnchoredPopover()
   const [search, setSearch] = useState('')
@@ -24,7 +25,8 @@ export function ColumnFilter({ title, getValues, selected, label, onApply, onGro
   const [draft, setDraft] = useState<Set<string>>(() => new Set())
   const [limit, setLimit] = useState(displayLimit)
   const term = searchKey(search.trim())
-  const visible = term ? values.filter((value) => searchKey(value ? label(value) : blank).includes(term)) : values
+  const matches = searchMatcher?.(search) ?? ((value: string) => searchKey(value).includes(term))
+  const visible = term ? values.filter((value) => matches(value ? label(value) : blank)) : values
   const allChecked = visible.length > 0 && visible.every((value) => draft.has(value))
 
   function finish(selection?: Set<string>) {

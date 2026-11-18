@@ -11,10 +11,11 @@ import { dateLabel, readUpload } from '../payments/paymentsApi'
 import { UploadBox } from '../payments/UploadBox'
 import { athensToday } from '../products/dates'
 import { CatalogPicker } from './CatalogPicker'
+import { OfferReview, type OfferedProduct } from './OfferReview'
 import { OrderBulkDialog, type OrderAction } from './OrderBulkDialog'
 import { BulkToolbar } from './OrderSelection'
 import { OrderTable } from './OrderTable'
-import { bestOffer, effectiveOffers, newDraft, snapshot, withSupplier, type Catalog, type Draft, type Source, type SourceKind, type Sources } from './orderData'
+import { bestOffer, editPrice, effectiveOffers, newDraft, snapshot, withSupplier, type Catalog, type Draft, type Source, type SourceKind, type Sources } from './orderData'
 
 const sourcesList = [
   ['stock', 'Stock ERP'], ['salesRecent', 'Πωλήσεις τριμήνου'], ['salesOther', 'Πωλήσεις δεύτερης περιόδου'],
@@ -48,7 +49,8 @@ export default function Orders() {
 }
 
 function OrdersWorkspace({ initialCatalog }: { initialCatalog: Catalog }) {
-  const [view, setView] = useState<'catalog' | 'order'>('catalog')
+  const [view, setView] = useState<'catalog' | 'offer' | 'order'>('catalog')
+  const [offerOpened, setOfferOpened] = useState(false)
   const [catalog, setCatalog] = useState(initialCatalog)
   const [catalogName, setCatalogName] = useState('')
   const [costsName, setCostsName] = useState('')
@@ -82,6 +84,7 @@ function OrdersWorkspace({ initialCatalog }: { initialCatalog: Catalog }) {
     draft, line: snapshot(draft, sources, catalog.market[draft.product.sku], catalog.optimizer?.[draft.product.sku]),
   })) : [], [action, drafts, sources, catalog])
   const orderSuppliers = [...new Set(rows.map(({ line }) => line.supplier).filter(Boolean))]
+  const availableSuppliers = [...new Set([...catalog.suppliers, ...orderSuppliers])]
   if (supplierFilter && !orderSuppliers.includes(supplierFilter)) orderSuppliers.push(supplierFilter)
   const displayed = supplierFilter ? rows.filter(({ line }) => line.supplier === supplierFilter) : rows
   const last = Math.max(0, Math.ceil(displayed.length / pageSize) - 1)
@@ -151,6 +154,30 @@ function OrdersWorkspace({ initialCatalog }: { initialCatalog: Catalog }) {
       return withSupplier(row, supplier || bestOffer(effectiveOffers(row))?.[0] || '')
     }))
     setOrdered((previous) => new Set([...previous, ...added]))
+  }
+
+  function addOffer(supplier: string, products: OfferedProduct[]) {
+    const existing = new Map(drafts.map((draft) => [draft.product.sku, draft]))
+    const updates = new Map<number, Draft>()
+    const additions: Draft[] = []
+    for (const { product, price, minBuy, lastBuy, minimumQuantity } of products) {
+      const current = existing.get(product.sku)
+      const draft = current ?? { ...newDraft(++nextId.current, product), listed: false }
+      const updated = {
+        ...withSupplier({ ...draft, offers: { ...draft.offers, [supplier]: price } }, supplier),
+        supplierEdited: true, purchaseEdited: true,
+        quantity: minimumQuantity ? String(Math.max(minimumQuantity, Number(draft.quantity) || 0)) : draft.quantity,
+        manual: { ...draft.manual, minBuy: editPrice(minBuy), lastBuy: editPrice(lastBuy ?? product.lastBuy) },
+      }
+      if (current) updates.set(draft.id, updated)
+      else additions.push(updated)
+    }
+    setDrafts((previous) => [...previous.map((draft) => updates.get(draft.id) ?? draft), ...additions])
+    setOrdered((previous) => new Set([...previous, ...updates.keys(), ...additions.map(({ id }) => id)]))
+    setSupplierFilter(supplier)
+    setPage(0)
+    setNotice(`Πέρασαν ${products.length} προϊόντα στην παραγγελία για ${supplier}.`)
+    setView('order')
   }
 
   function change(id: number, changes: Partial<Draft>) {
@@ -249,6 +276,8 @@ function OrdersWorkspace({ initialCatalog }: { initialCatalog: Catalog }) {
       </header>
       <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="Βήμα παραγγελίας">
         <Button variant={view === 'catalog' ? 'default' : 'outline'} aria-pressed={view === 'catalog'} onClick={() => { clearError(); setView('catalog') }} disabled={!!busy}>Επιλογή προϊόντων</Button>
+        <Button variant={view === 'offer' ? 'default' : 'outline'} aria-pressed={view === 'offer'}
+          onClick={() => { clearError(); setNotice(''); setOfferOpened(true); setView('offer') }} disabled={!!busy}>Αξιολόγηση προσφοράς</Button>
         <Button variant={view === 'order' ? 'default' : 'outline'} aria-pressed={view === 'order'} onClick={() => { clearError(); setView('order') }} disabled={!!busy}>
           <ListChecks size={16} aria-hidden="true" /> Παραγγελία · {rows.length}
         </Button>
@@ -290,6 +319,8 @@ function OrdersWorkspace({ initialCatalog }: { initialCatalog: Catalog }) {
             <EmptyState>Ανέβασε ένα αρχείο προϊόντων ERP για να ξεκινήσεις.</EmptyState>}
         </Card>
       </div>
+      {offerOpened && <div hidden={view !== 'offer'}><OfferReview suppliers={catalog.suppliers} onAdd={addOffer}
+        sources={sources} onSource={loadSource} sourceBusy={!!busy} periods={periods} /></div>}
       {view === 'order' && (
         <Card className="space-y-4 bg-linear-to-br from-card/85 to-primary/10 p-3 sm:p-5">
           <details className="rounded-xl border border-border/65 bg-card px-3 py-2.5" open={!rows.length || undefined}>
@@ -342,7 +373,7 @@ function OrdersWorkspace({ initialCatalog }: { initialCatalog: Catalog }) {
               <span className="text-amber-800 dark:text-amber-200">{checks} με έλεγχο τιμής</span>
               <span className="text-muted-foreground">{missing} με εκκρεμότητες</span>
             </div>
-            <OrderTable rows={pageRows} suppliers={catalog?.suppliers ?? []} checked={checked} onSelect={selectRows}
+            <OrderTable rows={pageRows} suppliers={availableSuppliers} checked={checked} onSelect={selectRows}
               onChange={change} onSkuChange={changeSku} onRemove={(id) => remove(new Set([id]))}
               onOffer={(id) => setAction({ action: { type: 'offer', ids: new Set([id]) }, hiddenCount: 0 })} />
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
@@ -355,7 +386,7 @@ function OrdersWorkspace({ initialCatalog }: { initialCatalog: Catalog }) {
           </> : <EmptyState>{rows.length ? 'Δεν υπάρχουν γραμμές για αυτόν τον προμηθευτή.' : 'Πρόσθεσε προϊόντα από την επιλογή προϊόντων για να ξεκινήσεις την παραγγελία.'}</EmptyState>}
         </Card>
       )}
-      {action && <OrderBulkDialog action={action.action} rows={actionRows} suppliers={catalog?.suppliers ?? []} catalog={view === 'catalog'}
+      {action && <OrderBulkDialog action={action.action} rows={actionRows} suppliers={availableSuppliers} catalog={view === 'catalog'}
         hiddenCount={action.hiddenCount}
         onClose={() => setAction(undefined)} onDelete={remove} onEdit={(changes) => {
           setDrafts((previous) => previous.map((row) => changes.get(row.id) ?? row))
