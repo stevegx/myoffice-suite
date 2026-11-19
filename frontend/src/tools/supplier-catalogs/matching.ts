@@ -2,6 +2,7 @@ import { searchKey } from '../payments/paymentsApi'
 import type { Product } from '../orders/orderData'
 
 export type SupplierRow = {
+  inReference?: boolean
   key: string
   code: string
   name: string

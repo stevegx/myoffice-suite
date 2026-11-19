@@ -34,6 +34,11 @@ export type Draft = {
 }
 
 const euro = new Intl.NumberFormat('el-GR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 4 })
+export function orderValues({ line }: { line: ReturnType<typeof snapshot> }) {
+  return [`${line.sku} ${line.name}`, line.supplier, line.purchase, line.quantity, line.vat, line.amardis,
+    line.lastBuy, line.minBuy, line.ownMin, line.skroutz, line.competitor, line.stock, line.salesRecent,
+    line.salesOther, line.skrCheck, line.buyCheck, line.notes]
+}
 export const money = (units: number | null | undefined) => units == null ? '---' : euro.format(units / 10_000)
 export const editPrice = (units: number | null | undefined) => units == null ? '' : String(units / 10_000).replace('.', ',')
 

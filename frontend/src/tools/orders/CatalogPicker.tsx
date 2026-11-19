@@ -6,6 +6,7 @@ import { catalogSearch } from './catalogSearch'
 import { type OrderAction } from './OrderBulkDialog'
 import { BulkToolbar, orderCheckbox, ProductFields, SelectPage } from './OrderSelection'
 import { bestOffer, effectiveOffers, money, supplierPrice, type Draft } from './orderData'
+import { useTableView } from './tableView'
 
 const pageSize = 30
 const control = 'h-10 min-w-0 rounded-lg border border-border bg-background px-3 text-sm'
@@ -26,7 +27,7 @@ export function CatalogPicker({ rows, suppliers, ordered, checked, setChecked, o
   const [bestOnly, setBestOnly] = useState(true)
   const [marked, setMarked] = useState(false)
   const [page, setPage] = useState(0)
-  const results = useMemo(() => {
+  const candidates = useMemo(() => {
     const matchesSearch = catalogSearch(query)
     const matches = rows.flatMap((draft) => {
       const { product } = draft
@@ -40,6 +41,14 @@ export function CatalogPicker({ rows, suppliers, ordered, checked, setChecked, o
     if (supplier) matches.sort((a, b) => (a.gap ?? Infinity) - (b.gap ?? Infinity))
     return matches
   }, [rows, query, supplier, bestOnly, marked])
+  const view = useTableView(candidates, ({ draft, best, price, gap }) => [
+    `${draft.product.sku} ${draft.name ?? draft.product.name}`,
+    ...(supplier ? [price, gap] : []),
+    best ? `${best[0]} · ${money(best[1])}` : '',
+    supplierPrice(draft, 'Amardis'),
+    ordered.has(draft.id) ? 'Στην παραγγελία' : 'Εκτός παραγγελίας',
+  ])
+  const results = view.rows
   const last = Math.max(0, Math.ceil(results.length / pageSize) - 1)
   const current = Math.min(page, last)
   const visible = results.slice(current * pageSize, (current + 1) * pageSize)
@@ -70,6 +79,7 @@ export function CatalogPicker({ rows, suppliers, ordered, checked, setChecked, o
           {suppliers.map((name) => <option key={name}>{name}</option>)}
         </select>
       </div>
+      <Button variant="ghost" className="h-8" onClick={() => { view.clear(); setQuery(''); setSupplier(''); setMarked(false); setPage(0) }}>Καθαρισμός φίλτρων</Button>
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
         {supplier && <label className="flex items-center gap-2">
           <input type="checkbox" className="accent-primary" checked={bestOnly} onChange={(e) => { setBestOnly(e.target.checked); setPage(0) }} />
@@ -89,15 +99,16 @@ export function CatalogPicker({ rows, suppliers, ordered, checked, setChecked, o
         onEdit={() => onAction({ type: 'edit', ids: checked }, checked.size - selectedVisible.length)}
         onDelete={() => onAction({ type: 'delete', ids: checked }, checked.size - selectedVisible.length)}
         onAdd={() => onAdd(selectedToAdd.map(({ draft }) => draft.id), supplier)} addCount={selectedToAdd.length} />
-      {!visible.length ? <EmptyState>Δεν βρέθηκαν προϊόντα με αυτά τα φίλτρα.</EmptyState> : (
+      {!candidates.length ? <EmptyState>Δεν βρέθηκαν προϊόντα με αυτά τα φίλτρα.</EmptyState> : (
         <div className="max-h-[60vh] overflow-auto rounded-xl border border-border/65 bg-card" role="region" aria-label="Αποτελέσματα καταλόγου" tabIndex={0}>
           <table className="w-full min-w-[52rem] table-fixed text-left text-sm">
             <thead className="sticky top-0 bg-card text-xs text-muted-foreground">
               <tr>{['Προϊόν', ...(supplier ? [supplier, 'Διαφορά'] : []), supplier ? 'Καλύτερη άλλη τιμή' : 'Καλύτερη τιμή', 'Amardis', 'Παραγγελία'].map((label, i) => (
                 <th key={label} scope="col" className={`px-3 py-3 ${i === 0 ? 'w-[30%]' : ''}`}>
                   {i === 0 ? <label className="flex items-center gap-2">
-                    <SelectPage ids={visible.map(({ draft }) => draft.id)} checked={checked} onSelect={select} />{label}
-                  </label> : label}
+                    <SelectPage ids={visible.map(({ draft }) => draft.id)} checked={checked} onSelect={select} />
+                  </label> : null}
+                  {view.header(label, i)}
                 </th>
               ))}</tr>
             </thead>

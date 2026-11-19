@@ -11,11 +11,15 @@ export type MarketRow = {
 
 type Minimum = { name: string; minSkr: string; minSite: string }
 export type ImportResult = {
+  optimizer?: Record<string, { our: string; minimum: string }>
   rows: MarketRow[]
   minimums: Record<string, Minimum[]>
   history?: { enabled: boolean; saved: number; skipped: number }
 }
 export type Row = MarketRow & {
+  repricingOur: string
+  officialOur: string
+  officialMin: string
   sourceOur: string
   minName: string
   minSkr: string
@@ -41,7 +45,12 @@ export function minimumFields(matches: Minimum[]) {
 
 export function createRows(data: ImportResult): Row[] {
   return data.rows.map((row) => ({
-    ...row, ...minimumFields(minimumFor(data.minimums, row.sku)), sourceOur: row.our,
+    ...row, ...minimumFields(minimumFor(data.minimums, row.sku)),
+    repricingOur: row.our,
+    officialOur: data.optimizer?.[row.sku.trim()]?.our ?? '',
+    officialMin: data.optimizer?.[row.sku.trim()]?.minimum ?? '',
+    sourceOur: data.optimizer?.[row.sku.trim()]?.our || row.our,
+    our: data.optimizer?.[row.sku.trim()]?.our || row.our,
     skrOverride: '', siteOverride: '', approvedSkr: false, approvedSite: false, excluded: false,
   }))
 }
@@ -77,53 +86,87 @@ export function evaluate(row: Row, duplicate: boolean) {
   const cheapest = cents(row.cheapest)
   const minSkr = cents(row.minSkr)
   const minSite = cents(row.minSite)
-  const rank = /^\d+$/.test(row.rank.trim()) ? Number(row.rank) : null
-  const hasCompetitors = /^\d+$/.test(row.competitors.trim()) ? Number(row.competitors) > 0 : null
   let proposal = our
   let reason = 'Διατήρηση της τιμής Skroutz.'
   let warning = ''
 
   if (!our) {
     warning = 'Συμπλήρωσε έγκυρη τιμή Our price.'
-  } else if (rank === 1) {
-    if (cheapest && our && cheapest < our) {
-      warning = 'Rank 1 με φθηνότερο ανταγωνιστή. Έλεγξε την κατάταξη.'
-    } else if (hasCompetitors === false) {
-      reason = 'Rank 1 χωρίς ανταγωνιστές. Έλεγχος ελάχιστης.'
-    } else if (hasCompetitors === null) {
-      warning = 'Λείπει έγκυρος αριθμός ανταγωνιστών.'
-    } else if (our && cheapest && cheapest - our > 20) {
-      const candidate = cheapest - 5
-      if (minSkr && candidate >= minSkr) {
-        proposal = candidate
-        reason = 'Rank 1 · αύξηση έως 0,05 € κάτω από τον επόμενο.'
-      } else {
-        reason = 'Η αύξηση δεν φτάνει την ελάχιστη Skroutz.'
-      }
-    } else if (!cheapest) {
-      warning = 'Λείπει η τιμή του ανταγωνιστή.'
+  } else if (!cheapest) {
+    warning = 'Λείπει η τιμή του ανταγωνιστή.'
+  } else if (our >= cheapest) {
+    const candidate = cheapest - 3
+    if (minSkr && candidate >= minSkr) {
+      proposal = candidate
+      reason = 'Repricing · μείωση 0,03 € κάτω από το Cheapest.'
+    } else if (minSkr && cheapest >= minSkr) {
+      proposal = cheapest
+      reason = 'Repricing · ισοπαλία με τον φθηνότερο, με τήρηση της δικής μας ελάχιστης.'
+    } else if (floorCheck(candidate, minSkr) === 'exception') {
+      proposal = candidate
+      reason = 'Repricing · μείωση έως 1,5% κάτω από τη δική μας ελάχιστη, με έγκριση.'
+    } else if (minSkr) {
+      proposal = minSkr + 10
+      reason = 'Η ανταγωνιστική τιμή είναι κάτω από το επιτρεπόμενο όριο · πρόταση στη δική μας ελάχιστη + 0,10 €.'
     } else {
-      reason = 'Rank 1 · διαφορά έως 0,20 €, διατήρηση τιμής.'
+      warning = 'Λείπει η δική μας ελάχιστη Skroutz. Συμπλήρωσέ τη για να ελεγχθεί η μείωση.'
     }
-  } else if (rank !== null && rank >= 2) {
-    if (our && cheapest && our >= cheapest) {
-      const candidate = cheapest - 3
-      if (minSkr && candidate >= minSkr) {
-        proposal = candidate
-        reason = 'Rank 2+ · μείωση 0,03 € κάτω από το Cheapest.'
-      } else {
-        reason = 'Η μείωση παραβιάζει την ελάχιστη Skroutz ή λείπει η ελάχιστη.'
-      }
-    } else if (!cheapest) {
-      warning = 'Λείπει η τιμή Cheapest.'
+  } else if (row.competitors.trim() === '0') {
+    reason = 'Χωρίς ανταγωνιστές · διατήρηση τιμής.'
+  } else if (cheapest - our > 20) {
+    const candidate = cheapest - 5
+    if (minSkr && candidate >= minSkr) {
+      proposal = candidate
+      reason = 'Repricing · αύξηση 0,05 € κάτω από τον επόμενο.'
     } else {
-      reason = 'Rank 2+ · η τιμή μας είναι ήδη χαμηλότερη από το Cheapest.'
+      warning = 'Η προτεινόμενη τιμή είναι κάτω από τη δική μας ελάχιστη ή λείπει η ελάχιστη.'
     }
-  } else if (!row.rank.trim()) {
-    reason = 'Χωρίς κατάταξη · έλεγχος ελάχιστης χωρίς αλλαγή.'
   } else {
-    warning = 'Μη έγκυρη κατάταξη.'
+    reason = 'Repricing · διαφορά έως 0,20 €, διατήρηση τιμής.'
   }
+  const official = cents(row.officialMin)
+  const hasOfficial = !!cents(row.officialOur) && !!official
+  const priceMismatch = hasOfficial && cents(row.repricingOur) !== cents(row.officialOur)
+  let source = hasOfficial ? 'Skroutz' : 'Repricing'
+  if (hasOfficial && our) {
+    const repricingProposal = proposal
+    warning = ''
+    proposal = our
+    if (our > official) {
+      const candidate = official - 3
+      reason = 'Skroutz · προτεραιότητα στην ελάχιστη αγοράς.'
+      if (minSkr && candidate >= minSkr) proposal = candidate
+      else if (minSkr && official >= minSkr) {
+        proposal = official
+        reason = 'Skroutz · ισοπαλία με την ελάχιστη αγοράς, με τήρηση της δικής μας ελάχιστης.'
+      } else if (floorCheck(candidate, minSkr) === 'exception') {
+        proposal = candidate
+        reason = 'Skroutz · μείωση έως 1,5% κάτω από τη δική μας ελάχιστη, με έγκριση.'
+      } else if (minSkr) {
+        proposal = minSkr + 10
+        reason = 'Η ανταγωνιστική τιμή είναι κάτω από το επιτρεπόμενο όριο · πρόταση στη δική μας ελάχιστη + 0,10 €.'
+      } else {
+        warning = 'Λείπει η δική μας ελάχιστη Skroutz. Συμπλήρωσέ τη για να ελεγχθεί η μείωση.'
+      }
+    } else if (our === official) {
+      reason = 'Skroutz · η τιμή μας είναι ίση με την ελάχιστη, είμαστε οι φθηνότεροι.'
+      if (priceMismatch) {
+        warning = 'Χειροκίνητος έλεγχος · η δική μας τιμή διαφέρει μεταξύ Skroutz και Repricing. Συμπλήρωσε νέα τιμή μετά τον έλεγχο.'
+      } else if (repricingProposal !== null && repricingProposal > our) {
+        proposal = repricingProposal
+        source = 'Skroutz + Repricing'
+        reason = 'Skroutz · επιβεβαίωση χαμηλότερης τιμής. Repricing · αύξηση 0,05 € κάτω από τον δεύτερο.'
+      } else if (!cheapest) {
+        warning = 'Λείπει τιμή δεύτερου ανταγωνιστή στο Repricing.'
+      }
+    } else {
+      reason = 'Skroutz · ήδη χαμηλότερα από την ελάχιστη αγοράς, διατήρηση τιμής.'
+    }
+  } else if (row.officialOur || row.officialMin) {
+    warning = [warning, 'Ελλιπή στοιχεία Skroutz · χρησιμοποιείται το Repricing.'].filter(Boolean).join(' ')
+  }
+  const conflict = hasOfficial && !!our && our > official && !!cheapest && cheapest - our > 20
+  if (conflict) warning = [warning, 'Διαφωνία πηγών · το Skroutz έχει προτεραιότητα έναντι αύξησης Repricing.'].filter(Boolean).join(' ')
 
   const skr = row.skrOverride.trim() ? cents(row.skrOverride) : proposal
   const site = row.siteOverride.trim() ? cents(row.siteOverride) : skr === null ? null : Math.floor((skr * 97 + 50) / 100)
@@ -141,7 +184,7 @@ export function evaluate(row: Row, duplicate: boolean) {
   const deltaPercent = original && skr !== null ? delta * 100 / original : null
 
   return {
-    skr, site, proposal, reason, warning, skrCheck, siteCheck, changedSkr, changedSite, canSkr, canSite,
+    skr, site, proposal, reason, warning, source, conflict: conflict || priceMismatch, skrCheck, siteCheck, changedSkr, changedSite, canSkr, canSite,
     duplicate, missingIdentity: !row.sku.trim() || !row.product.trim(), missingOriginal: original === null,
     delta, deltaPercent, largeChange: Math.abs(delta) >= 100 || Math.abs(deltaPercent ?? 0) >= 10,
     readySkr, readySite: canSite && (siteCheck === 'ok' || row.approvedSite),

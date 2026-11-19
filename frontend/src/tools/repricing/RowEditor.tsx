@@ -41,6 +41,10 @@ export function RowEditor({ entry, minimumCount, historyEnabled, onClose, onAppr
       </header>
       <dl className="grid gap-3 rounded-xl border border-border/70 bg-background p-4 sm:grid-cols-3">
         {[
+          ['Πηγή πρότασης', result.source],
+          ['Τιμή μας · Price Optimizer', euro(cents(row.officialOur))],
+          ['Τιμή μας · Repricing', euro(cents(row.repricingOur))],
+          ['Ελάχιστη αγοράς · Skroutz', euro(cents(row.officialMin))],
           ['Αρχική Skroutz', euro(cents(row.sourceOur))],
           ['Τελική Skroutz', euro(result.skr)],
           ['Μεταβολή', change],

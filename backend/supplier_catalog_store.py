@@ -24,6 +24,14 @@ def previous_catalog(path, supplier):
         return current["Revision"] if current else 0, json.loads(current["RowsJson"]) if current else [], mappings
 
 
+def all_mappings(path):
+    mappings = defaultdict(dict)
+    with closing(connect_readonly(path)) as db:
+        for supplier, code, sku in db.execute("SELECT Supplier, ExternalKey, ErpSku FROM SupplierSkuMappings ORDER BY Supplier, ExternalKey"):
+            mappings[supplier][code] = sku
+    return mappings
+
+
 def seed_mappings(path, mappings):
     with closing(sqlite3.connect(path, autocommit=True)) as db:
         db.execute("BEGIN IMMEDIATE")
@@ -31,6 +39,17 @@ def seed_mappings(path, mappings):
             INSERT INTO SupplierSkuMappings VALUES (?, ?, ?)
             ON CONFLICT(Supplier, ExternalKey) DO NOTHING
         """, mappings).rowcount
+        db.execute("COMMIT")
+    return count
+
+
+def save_offer_mappings(path, supplier, changes):
+    with closing(sqlite3.connect(path, autocommit=True)) as db:
+        db.execute("BEGIN IMMEDIATE")
+        count = db.executemany("""
+            INSERT INTO SupplierSkuMappings VALUES (?, ?, ?)
+            ON CONFLICT(Supplier, ExternalKey) DO UPDATE SET ErpSku = excluded.ErpSku
+        """, ((supplier, code, sku) for code, sku in changes.items())).rowcount
         db.execute("COMMIT")
     return count
 
@@ -57,16 +76,24 @@ def approve_catalog(path, supplier, revision, day, filename, rows, decisions):
         db.execute("COMMIT")
 
 
-def current_offers(path):
-    offers = {}
+def catalog_snapshots(path):
     with closing(connect_readonly(path)) as db:
-        for row in db.execute("SELECT Supplier, EffectiveOn, RowsJson FROM SupplierCatalogs"):
-            by_sku = defaultdict(list)
-            for offer in json.loads(row["RowsJson"]):
-                if offer["erpSku"]:
-                    by_sku[offer["erpSku"]].append({**offer, "day": row["EffectiveOn"]})
-            offers[row["Supplier"]] = {
-                sku: min(items, key=lambda item: item["price"] if item["price"] is not None else float("inf"))
-                for sku, items in by_sku.items()
-            }
+        return {row["Supplier"]: [{**offer, "day": row["EffectiveOn"]} for offer in json.loads(row["RowsJson"])]
+                for row in db.execute("SELECT Supplier, EffectiveOn, RowsJson FROM SupplierCatalogs")}
+
+
+def current_offers(path):
+    return offers_by_sku(catalog_snapshots(path))
+
+
+def offers_by_sku(snapshots):
+    offers = {}
+    for supplier, rows in snapshots.items():
+        by_sku = {}
+        for offer in rows:
+            sku = offer["erpSku"]
+            old = by_sku.get(sku)
+            if sku and (old is None or (offer["price"] is not None and (old["price"] is None or offer["price"] < old["price"]))):
+                by_sku[sku] = offer
+        offers[supplier] = by_sku
     return offers

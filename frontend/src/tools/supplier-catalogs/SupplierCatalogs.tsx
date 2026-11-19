@@ -6,6 +6,7 @@ import { Button } from '../../components/ui/button'
 import { Card } from '../../components/ui/card'
 import { EmptyState, ErrorState, LoadingState } from '../../components/ui/feedback'
 import { useTask } from '../../lib/useTask'
+import { downloadFile } from '../../lib/downloadFile'
 import { dateLabel, readUpload } from '../payments/paymentsApi'
 import { UploadBox } from '../payments/UploadBox'
 import { athensToday } from '../products/dates'
@@ -25,8 +26,10 @@ export default function SupplierCatalogs() {
   const [published, reload] = useApi<{ enabled: boolean; catalogs: Published[] }>('/api/supplier-catalogs')
   const [saved, reloadProducts] = useApi<Catalog>('/api/orders/catalog')
   const [importedProducts, setImportedProducts] = useState<Product[]>()
-  const [masterName, setMasterName] = useState('')
-  const [mappingName, setMappingName] = useState('')
+  const [mergeTemplate, setMergeTemplate] = useState<File>()
+  const [mappingTemplate, setMappingTemplate] = useState<File>()
+  const [queue, setQueue] = useState<Partial<Record<Supplier, File>>>({})
+  const [approved, setApproved] = useState<Supplier[]>([])
   const [supplier, setSupplier] = useState<Supplier>('Cosmodrink')
   const [day, setDay] = useState(athensToday)
   const [loaded, setLoaded] = useState<Loaded>()
@@ -53,8 +56,21 @@ export default function SupplierCatalogs() {
     void run('Ανάγνωση προϊόντων ERP…', 'Η ανάγνωση του συγκεντρωτικού απέτυχε', async () => {
       const result = await requestJson<Catalog>('/api/orders/catalog', jsonOptions({ file: await readUpload(file) }))
       setImportedProducts(result.products)
-      setMasterName(file.name)
+      setMergeTemplate(file)
       setNotice(`Αποθηκευμένα ERP SKU · ${result.products.length}`)
+    })
+  }
+
+  function exportWorkbook(kind: 'merge' | 'mappings') {
+    const template = kind === 'merge' ? mergeTemplate : mappingTemplate
+    const label = kind === 'merge' ? 'Catalog Merge' : 'Catalog DB'
+    if (!template || busy) return
+    setNotice('')
+    void run(`Ενημέρωση ${label}…`, `Η λήψη του ${label} απέτυχε`, async () => {
+      await downloadFile(`/api/supplier-catalogs/export-${kind}`, {
+        file: await readUpload(template), suppliers: kind === 'merge' ? approved : undefined,
+      })
+      setNotice(`Το ενημερωμένο ${label} είναι έτοιμο.`)
     })
   }
 
@@ -62,23 +78,35 @@ export default function SupplierCatalogs() {
     setNotice('')
     void run('Εισαγωγή γνωστών αντιστοιχίσεων…', 'Η εισαγωγή αντιστοιχίσεων απέτυχε', async () => {
       const result = await requestJson<{ saved: number; conflicts: number }>('/api/supplier-catalogs/mappings', jsonOptions({ file: await readUpload(file) }))
-      setMappingName(file.name)
+      setMappingTemplate(file)
       setNotice(`Προστέθηκαν ${result.saved} αντιστοιχίσεις. ${result.conflicts} αντικρουόμενοι κωδικοί χρειάζονται έλεγχο.`)
     })
   }
 
-  function loadSupplier(file: File) {
+  function loadSupplier(name: Supplier, file: File) {
+    setSupplier(name)
     setNotice('')
-    void run(`Έλεγχος καταλόγου ${supplier}…`, 'Η ανάγνωση του καταλόγου απέτυχε', async () => {
+    void run(`Έλεγχος καταλόγου ${name}…`, 'Η ανάγνωση του καταλόγου απέτυχε', async () => {
       const content = await readUpload(file)
-      const preview = await requestJson<Preview>(`${endpoint}/preview`, jsonOptions({ file: content }))
+      const supplierEndpoint = `/api/supplier-catalogs/${encodeURIComponent(name)}`
+      const [preview, ...references] = await Promise.all([
+        requestJson<Preview>(`${supplierEndpoint}/preview`, jsonOptions({ file: content })),
+        ...[mergeTemplate, mappingTemplate].flatMap((file) => file ? [readUpload(file).then((encoded) =>
+          requestJson<string[]>(`${supplierEndpoint}/reference-codes`, jsonOptions({ file: encoded })))] : []),
+      ])
+      const codes = new Set(references.flat())
+      const reviewed = { ...preview, referencesChecked: references.length === 2, rows: preview.rows.map((row) => {
+        const code = (name === 'Diageo' ? row.name : row.code || row.name).toLowerCase()
+        const legacy = name === 'Spirit Hall' && /^[0-9]+$/.test(code) ? `legacy-num:${BigInt(code)}` : ''
+        return { ...row, inReference: codes.has(code) || (!!legacy && codes.has(legacy)) }
+      }) }
       const decisions = preview.rows.map((row) => {
-        const priority = preferredSku(row, preferred)
-        return [row.key, priority ?? (erpSkus.has(row.erpSku) ? row.erpSku : '')]
+        const mapped = erpSkus.has(row.erpSku) ? row.erpSku : preferredSku(row, preferred)
+        return [row.key, mapped ?? '']
       })
       setInitialDecisions(Object.fromEntries(decisions))
       setEdits({})
-      setLoaded({ preview, content, filename: file.name })
+      setLoaded({ preview: reviewed, content, filename: file.name })
       setConfirmed(false)
     })
   }
@@ -118,6 +146,8 @@ export default function SupplierCatalogs() {
           price === undefined && availability === undefined ? [] : [[key, { price, availability }]])),
       }))
       discard()
+      setQueue((previous) => ({ ...previous, [supplier]: undefined }))
+      setApproved((previous) => previous.includes(supplier) ? previous : [...previous, supplier])
       setNotice(`Εγκρίθηκε ο κατάλογος ${supplier} · ${result.mapped} από ${result.rows} γραμμές με ERP SKU.`)
       reload()
     })
@@ -137,20 +167,21 @@ export default function SupplierCatalogs() {
       {error && <ErrorState className="mb-4" {...error} />}
       {notice && <p role="status" className="mb-3 text-sm font-medium text-primary">{notice}</p>}
       {enabled && <Card className="space-y-4 bg-linear-to-br from-card/85 to-primary/10 p-3 sm:p-5">
+        <h2 className="text-lg font-semibold">Αρχεία αναφοράς</h2>
         {saved.status === 'loading' && !importedProducts && <LoadingState title="Φόρτωση προϊόντων ERP από τη βάση…" />}
         {saved.status === 'error' && !importedProducts && <ErrorState title="Τα προϊόντα ERP δεν φορτώθηκαν" detail={saved.detail} retry={reloadProducts} />}
         {!!products.length && <p className="text-sm font-medium text-muted-foreground">{products.length} ERP SKU από τη βάση</p>}
         <div className="grid gap-2 sm:grid-cols-2">
           <div className="overflow-hidden rounded-xl border border-border/65 bg-card">
-            <UploadBox step={1} label={products.length ? 'Ενημέρωση ή προσθήκη προϊόντων ERP' : 'Αρχική εισαγωγή προϊόντων ERP'}
-              accept=".xlsx" filename={masterName} disabled={!!busy || !!loaded || saved.status === 'loading'} onFile={loadMaster} />
+            <UploadBox step={1} label="Τρέχον Catalog Merge"
+              accept=".xlsx" filename={mergeTemplate?.name} disabled={!!busy || !!loaded || saved.status === 'loading'} onFile={loadMaster} />
           </div>
           <div className="overflow-hidden rounded-xl border border-border/65 bg-card">
-            <UploadBox step={2} label="Γνωστές αντιστοιχίσεις (catalog DB)" accept=".xlsx" filename={mappingName} disabled={!!busy || !!loaded} onFile={loadMappings} />
+            <UploadBox step={2} label="Catalog DB · αντιστοιχίσεις SKU" accept=".xlsx" filename={mappingTemplate?.name} disabled={!!busy || !!loaded} onFile={loadMappings} />
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">Το catalog DB είναι προαιρετικό. Προσθέτει γνωστούς κωδικούς Cosmodrink, Spirit Hall και Amardis.</p>
-        <p className="text-xs text-muted-foreground">Οι διορθώσεις της προεπισκόπησης αποθηκεύονται στην τοπική βάση με την έγκριση του καταλόγου.</p>
+        <h2 className="border-t border-border/65 pt-4 text-lg font-semibold">Κατάλογοι προς ενημέρωση</h2>
+        <p className="text-sm text-muted-foreground">Πρόσθεσε ένα αρχείο ανά προμηθευτή και έλεγξε κάθε κατάλογο πριν τον εγκρίνεις.</p>
         <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <label className="grid gap-1 text-sm font-medium">Προμηθευτής
             <select aria-label="Προμηθευτής καταλόγου" className={control} value={supplier} disabled={!!busy || !!loaded}
@@ -166,10 +197,25 @@ export default function SupplierCatalogs() {
           Τελευταίος εγκεκριμένος · {dateLabel(publishedForSupplier.day)} · {publishedForSupplier.filename} · {publishedForSupplier.mapped}/{publishedForSupplier.rows} αντιστοιχίσεις
         </p>}
         <div className="overflow-hidden rounded-xl border border-border/65 bg-card">
-          <UploadBox step={3} label="Νέος κατάλογος προμηθευτή" accept=".xlsx" filename={loaded?.filename}
-            disabled={!!busy || !products.length || !!loaded} onFile={loadSupplier} />
+          <UploadBox step={3} label={`Κατάλογος ${supplier}`} accept=".xlsx" filename={queue[supplier]?.name}
+            disabled={!!busy || !!loaded} onFile={(file) => setQueue((previous) => ({ ...previous, [supplier]: file }))} />
         </div>
-        {!products.length && saved.status === 'ready' && <EmptyState>Κάνε την αρχική εισαγωγή προϊόντων ERP μία φορά για να επιλέγεις SKU και στις επόμενες εισαγωγές προμηθευτών.</EmptyState>}
+        <ul className="divide-y divide-border/65">
+          {suppliers.map((name) => {
+            const file = queue[name]
+            if (!file) return null
+            return <li key={name} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+              <span className="wrap-anywhere"><strong>{name}</strong> · {file.name}</span>
+              <div className="flex gap-2">
+                <Button variant="outline" className="h-8" disabled={!!busy || !!loaded || !products.length}
+                  onClick={() => loadSupplier(name, file)}>Άνοιγμα και επεξεργασία {name}</Button>
+                <Button variant="ghost" className="h-8" disabled={!!busy || !!loaded}
+                  onClick={() => setQueue((previous) => ({ ...previous, [name]: undefined }))}>Αφαίρεση {name}</Button>
+              </div>
+            </li>
+          })}
+        </ul>
+        {!products.length && saved.status === 'ready' && <EmptyState>Ανέβασε το Catalog Merge για να ξεκινήσεις τον έλεγχο των SKU.</EmptyState>}
         {loaded && <>
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/65 bg-card px-3 py-2.5">
             <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
@@ -189,6 +235,15 @@ export default function SupplierCatalogs() {
             <Button disabled={!!busy || !day || !priced || (!!pending && !confirmed)} onClick={approve}><Check size={16} aria-hidden="true" /> Έγκριση καταλόγου</Button>
           </div>
         </>}
+        <div className="space-y-2 border-t border-border/65 pt-4">
+          <h2 className="text-lg font-semibold">Λήψη ενημερωμένων αρχείων</h2>
+          <p className="text-sm text-muted-foreground">Το Merge εφαρμόζει τις τιμές των καταλόγων που εγκρίνεις εδώ. Το Catalog DB περιλαμβάνει τις αποθηκευμένες αντιστοιχίσεις.</p>
+          {!!approved.length && <p className="text-sm text-primary">Εγκρίθηκαν · {approved.join(', ')}</p>}
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => exportWorkbook('merge')} disabled={!!busy || !mergeTemplate || !approved.length}>Λήψη ενημερωμένου Merge</Button>
+            <Button variant="outline" onClick={() => exportWorkbook('mappings')} disabled={!!busy || !mappingTemplate}>Λήψη ενημερωμένου Catalog DB</Button>
+          </div>
+        </div>
       </Card>}
     </section>
   )
