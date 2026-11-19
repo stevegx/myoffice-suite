@@ -326,7 +326,7 @@ export function RepricingTable({ entries, order, onOrderChange, onOpen, onEdit, 
                         </td>
                       )
                     }
-                    if (key === 'sourceOur' || key === 'status') return (
+                    if (key === 'sourceOur' || key === 'status' || key === 'officialOur' || key === 'officialMin' || key === 'repricingOur') return (
                       <td key={key} className={`truncate px-3 ${key === 'status' ? 'text-xs text-muted-foreground' : 'tabular-nums'}`}
                         title={display}>{display || '—'}</td>
                     )

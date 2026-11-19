@@ -15,6 +15,9 @@ import { OfferReview, type OfferedProduct } from './OfferReview'
 import { OrderBulkDialog, type OrderAction } from './OrderBulkDialog'
 import { BulkToolbar } from './OrderSelection'
 import { OrderTable } from './OrderTable'
+import { orderValues } from './orderData'
+import { useTableView } from './tableView'
+import { catalogSearch } from './catalogSearch'
 import { bestOffer, editPrice, effectiveOffers, newDraft, snapshot, withSupplier, type Catalog, type Draft, type Source, type SourceKind, type Sources } from './orderData'
 
 const sourcesList = [
@@ -67,6 +70,7 @@ function OrdersWorkspace({ initialCatalog }: { initialCatalog: Catalog }) {
   const [editError, setEditError] = useState('')
   const [page, setPage] = useState(0)
   const [supplierFilter, setSupplierFilter] = useState('')
+  const [orderQuery, setOrderQuery] = useState('')
   const [today] = useState(athensToday)
   const [recentStart, setRecentStart] = useState(() => threeMonthsBefore(today))
   const [recentEnd, setRecentEnd] = useState(today)
@@ -86,7 +90,10 @@ function OrdersWorkspace({ initialCatalog }: { initialCatalog: Catalog }) {
   const orderSuppliers = [...new Set(rows.map(({ line }) => line.supplier).filter(Boolean))]
   const availableSuppliers = [...new Set([...catalog.suppliers, ...orderSuppliers])]
   if (supplierFilter && !orderSuppliers.includes(supplierFilter)) orderSuppliers.push(supplierFilter)
-  const displayed = supplierFilter ? rows.filter(({ line }) => line.supplier === supplierFilter) : rows
+  const matchesOrder = catalogSearch(orderQuery)
+  const orderView = useTableView(rows.filter(({ line }) =>
+    (!supplierFilter || line.supplier === supplierFilter) && matchesOrder(`${line.sku} ${line.name} ${line.supplier} ${line.notes}`)), orderValues)
+  const displayed = orderView.rows
   const last = Math.max(0, Math.ceil(displayed.length / pageSize) - 1)
   const current = Math.min(page, last)
   const pageRows = displayed.slice(current * pageSize, (current + 1) * pageSize)
@@ -99,7 +106,7 @@ function OrdersWorkspace({ initialCatalog }: { initialCatalog: Catalog }) {
     { label: 'Πωλήσεις δεύτερης περιόδου', start: otherStart, end: otherEnd, onStart: setOtherStart, onEnd: setOtherEnd },
   ]
 
-  function refreshCatalog(data: Catalog) {
+  function refreshCatalog(data: Catalog, replacePrices = false) {
     const products = new Map(data.products.map((product) => [product.sku, product]))
     const additions = data.products.map((product) => newDraft(++nextId.current, product))
     setDrafts((previous) => {
@@ -108,6 +115,11 @@ function OrdersWorkspace({ initialCatalog }: { initialCatalog: Catalog }) {
         const fresh = products.get(row.product.sku)
         const product = fresh ?? { ...row.product, offers: {}, availability: '', minBuy: null, lastBuy: null }
         const next = { ...row, product, listed: !!fresh }
+        if (replacePrices && fresh) {
+          const supplier = row.supplierEdited ? row.supplier : bestOffer(fresh.offers)?.[0] ?? ''
+          const { minBuy: _minBuy, lastBuy: _lastBuy, ...manual } = row.manual
+          return withSupplier({ ...next, offers: {}, manual }, supplier)
+        }
         return row.purchaseEdited ? next : withSupplier(next, row.supplier)
       })
       return [...updated, ...additions.filter(({ product }) => !existing.has(product.sku))]
@@ -119,7 +131,8 @@ function OrdersWorkspace({ initialCatalog }: { initialCatalog: Catalog }) {
     setNotice('')
     void run('Ανάγνωση προϊόντων ERP…', 'Η εισαγωγή προϊόντων απέτυχε', async () => {
       const data = await requestJson<Catalog>('/api/orders/catalog', jsonOptions({ file: await readUpload(file) }))
-      refreshCatalog(data)
+      refreshCatalog(data, true)
+      setSources((previous) => ({ ...previous, costs: undefined }))
       setCatalogChecked(new Set())
       setCatalogName(file.name)
       setNotice(`${data.persistent ? 'Αποθηκευμένα' : 'Διαθέσιμα'} προϊόντα · ${data.products.length}`)
@@ -143,6 +156,10 @@ function OrdersWorkspace({ initialCatalog }: { initialCatalog: Catalog }) {
     void run(`Ανάγνωση αρχείου · ${label}…`, 'Η εισαγωγή στοιχείων απέτυχε', async () => {
       const data = await requestJson<Omit<Source, 'filename'>>(`/api/orders/sources/${kind}`, jsonOptions({ file: await readUpload(file) }))
       setSources((previous) => ({ ...previous, [kind]: { ...data, filename: file.name } }))
+      const fields = kind === 'costs' ? ['minBuy', 'lastBuy'] : [kind]
+      setDrafts((previous) => previous.map((draft) => ({
+        ...draft, manual: Object.fromEntries(Object.entries(draft.manual).filter(([key]) => !fields.includes(key))),
+      })))
       setNotice(`Ενημερώθηκε το αρχείο «${label}».`)
     })
   }
@@ -291,6 +308,7 @@ function OrdersWorkspace({ initialCatalog }: { initialCatalog: Catalog }) {
           {catalog.products.length > 0 && <p className="text-sm font-medium text-muted-foreground">
             {catalog.products.length} προϊόντα {catalog.persistent ? 'από τη βάση ERP' : 'από το αρχείο ERP'}
           </p>}
+          <p className="text-xs text-muted-foreground">Η εισαγωγή νέου Merge ενημερώνει τις τιμές προμηθευτών και αγοράς στις επιλεγμένες γραμμές. Κάθε νέο συμπληρωματικό αρχείο αντικαθιστά τις προηγούμενες τιμές του πεδίου του.</p>
           <details className="rounded-xl border border-border/70 bg-card p-3" open={!catalog.products.length || undefined}>
             <summary className="cursor-pointer text-sm font-semibold">{catalog.products.length ? 'Ενημέρωση προϊόντων ERP' : 'Αρχική εισαγωγή προϊόντων ERP'}</summary>
             <div className="mt-3 grid gap-2 lg:grid-cols-2">
@@ -302,6 +320,22 @@ function OrdersWorkspace({ initialCatalog }: { initialCatalog: Catalog }) {
               </div>}
             </div>
             <p className="mt-2 text-xs text-muted-foreground">Για νέα προϊόντα χρησιμοποίησε αρχείο με SKU και περιγραφή. Για τιμές αγοράς αρκούν το SKU και η ΤΤΑ ή το MinBuyPrice.</p>
+          </details>
+          <details className="rounded-xl border border-border/65 bg-card p-3" open>
+            <summary className="cursor-pointer text-sm font-semibold">Stock, πωλήσεις και ελάχιστη Skroutz</summary>
+            <div className="mt-3 grid gap-2 lg:grid-cols-2">
+              {sourcesList.map(([kind, label], index) => <div key={kind} className="min-w-0 rounded-lg border border-border/65">
+                <UploadBox step={index + 1} label={label} accept=".xlsx" filename={sources[kind]?.filename}
+                  disabled={!!busy} onFile={(file) => loadSource(kind, file)} />
+              </div>)}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-4">
+              {periods.map(({ label, start, end, onStart, onEnd }) => <fieldset key={label} className="flex flex-wrap gap-2">
+                <legend className="mb-1 text-xs font-medium">{label}</legend>
+                <input type="date" aria-label={`Από · επιλογή προϊόντων · ${label}`} className={dateClass} value={start} disabled={!!busy} onChange={(event) => onStart(event.target.value)} />
+                <input type="date" aria-label={`Έως · επιλογή προϊόντων · ${label}`} className={dateClass} value={end} disabled={!!busy} onChange={(event) => onEnd(event.target.value)} />
+              </fieldset>)}
+            </div>
           </details>
           {catalog.duplicates ? <p className="text-sm text-amber-800 dark:text-amber-200" role="status">
             {catalog.duplicates} διπλά SKU χρειάζονται έλεγχο. Οι προσφορές τους παραλείφθηκαν από τη σύγκριση.
@@ -351,6 +385,11 @@ function OrdersWorkspace({ initialCatalog }: { initialCatalog: Catalog }) {
             {catalog.persistent && <p className="mt-1 text-xs text-muted-foreground">Το αρχείο Price Optimizer ενημερώνει και τις αποθηκευμένες τιμές στις καρτέλες Προϊόντων.</p>}
           </details>
           {invalidPeriods && <ErrorState title="Μη έγκυρο διάστημα" detail="Συμπλήρωσε και τις δύο ημερομηνίες της περιόδου, με την έναρξη πριν από ή ίδια με τη λήξη." />}
+          <div className="flex flex-wrap gap-2">
+            <input type="search" className={dateClass} aria-label="Αναζήτηση παραγγελίας" placeholder="SKU ή όνομα · *gold* *label*"
+              value={orderQuery} onChange={(event) => { setOrderQuery(event.target.value); setPage(0) }} />
+            <Button variant="outline" className="h-8" onClick={() => { orderView.clear(); setOrderQuery(''); setSupplierFilter(''); setPage(0) }}>Καθαρισμός φίλτρων</Button>
+          </div>
           {!!rows.length && <label className="flex flex-wrap items-center gap-2 text-sm font-medium">
             Προμηθευτής παραγγελίας
             <select aria-label="Προμηθευτής παραγγελίας" className={dateClass} value={supplierFilter} disabled={!!busy}
@@ -367,13 +406,13 @@ function OrdersWorkspace({ initialCatalog }: { initialCatalog: Catalog }) {
             onAll={() => setChecked(new Set(displayed.map(({ draft }) => draft.id)))} onClear={() => setChecked(new Set())}
             onEdit={() => setAction({ action: { type: 'edit', ids: checked }, hiddenCount: checked.size - displayedSelected })}
             onDelete={() => setAction({ action: { type: 'delete', ids: checked }, hiddenCount: checked.size - displayedSelected })} />
-          {displayed.length ? <>
+          {rows.length ? <>
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
               <strong>{displayed.length} προϊόντα</strong>
               <span className="text-amber-800 dark:text-amber-200">{checks} με έλεγχο τιμής</span>
               <span className="text-muted-foreground">{missing} με εκκρεμότητες</span>
             </div>
-            <OrderTable rows={pageRows} suppliers={availableSuppliers} checked={checked} onSelect={selectRows}
+            <OrderTable rows={pageRows} renderHeader={orderView.header} suppliers={availableSuppliers} checked={checked} onSelect={selectRows}
               onChange={change} onSkuChange={changeSku} onRemove={(id) => remove(new Set([id]))}
               onOffer={(id) => setAction({ action: { type: 'offer', ids: new Set([id]) }, hiddenCount: 0 })} />
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">

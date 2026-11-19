@@ -12,6 +12,9 @@ from openpyxl.worksheet.hyperlink import Hyperlink
 from ..payments.routes import decode_file, process
 from ..payments.workbooks import MAX_EXPANDED_BYTES, MAX_ROWS, normalized, read_cents
 from ..products.history import effective_date, record_import
+from ..converter import open_excel
+from ..orders import records
+from ..payments.workbooks import read_code
 from .report import append_report
 
 router = APIRouter(prefix="/api/repricing", tags=["Repricing"])
@@ -93,6 +96,26 @@ def import_files(data: dict, path=None) -> dict:
     except csv.Error as error:
         raise ValueError("Το αρχείο repricing περιέχει μη έγκυρη μορφοποίηση CSV.") from error
     minimums = read_minimums(decode_file(data, "minimums"))
+    optimizer = {}
+    if data.get("optimizer"):
+        with open_excel(decode_file(data, "optimizer"), ".xlsx") as (book, _):
+            for sheet in book.worksheets:
+                items = records(sheet, {"sku": ("Unique ID", "SKU"), "our": ("Price Optimizer price",),
+                                       "minimum": ("Min Marketplace price",)}, ("sku", "our", "minimum"))
+                if items is not None:
+                    break
+            else:
+                raise ValueError("Το αρχείο Skroutz χρειάζεται Unique ID, Price Optimizer price και Min Marketplace price.")
+            for item in items:
+                sku = read_code(item["sku"])
+                if not sku or sku in ("---", "#N/A"):
+                    continue
+                entry = {"our": price(item["our"]), "minimum": price(item["minimum"])}
+                if sku in optimizer and optimizer[sku] != entry:
+                    raise ValueError(f"Διαφορετικές τιμές Skroutz για το SKU {sku}.")
+                optimizer[sku] = entry
+        if not optimizer:
+            raise ValueError("Το αρχείο Skroutz δεν περιέχει SKU.")
     history = {"enabled": path is not None, "saved": 0, "skipped": 0}
     if path is not None and data.get("observedOn") is not None:
         day = effective_date(data["observedOn"])
@@ -105,7 +128,7 @@ def import_files(data: dict, path=None) -> dict:
             cents = read_cents(entry["minSkr"])
             floors.append((sku, entry["name"] or sku, cents if cents and 0 < cents <= 999_999_999 else None))
         history = record_import(path, day, raw, market, (minimum_day, floors))
-    return {"rows": market, "minimums": minimums, "history": history}
+    return {"rows": market, "minimums": minimums, "history": history, "optimizer": optimizer}
 
 
 def export_rows(data: dict, channel: str) -> list[list]:

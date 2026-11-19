@@ -23,6 +23,7 @@ const exportLabels: Record<ExportKind, string> = { skroutz: 'Skroutz XLS', site:
 export default function Repricing() {
   const [market, setMarket] = useState<File>()
   const [minimums, setMinimums] = useState<File>()
+  const [optimizer, setOptimizer] = useState<File>()
   const [observedOn, setObservedOn] = useState(athensToday)
   const [exports, setExports] = useState<Partial<Record<'skroutz' | 'site', PriceExport>>>({})
   const [data, setData] = useState<ImportResult>()
@@ -47,9 +48,10 @@ export default function Repricing() {
       return
     }
     void run('Ανάγνωση αρχείων και έλεγχος τιμών…', 'Η εισαγωγή απέτυχε', async () => {
-      const [marketData, minimumData] = await Promise.all([readUpload(market), readUpload(minimums)])
+      const [marketData, minimumData, optimizerData] = await Promise.all([readUpload(market), readUpload(minimums),
+        optimizer ? readUpload(optimizer) : undefined])
       const imported = await requestJson<ImportResult>('/api/repricing/import', jsonOptions({
-        market: marketData, minimums: minimumData, observedOn, minimumsOn: athensToday(),
+        market: marketData, minimums: minimumData, optimizer: optimizerData, observedOn, minimumsOn: athensToday(),
       }))
       const importedRows = createRows(imported)
       setData(imported)
@@ -76,7 +78,11 @@ export default function Repricing() {
       const updated = values.sku !== undefined && values.sku.trim() !== row.sku.trim()
         ? { ...minimumFields(minimumFor(data.minimums, values.sku)), ...values }
         : values
-      return { ...row, ...updated, approvedSkr: false, approvedSite: false }
+      const official = values.sku !== undefined && values.sku.trim() !== row.sku.trim()
+        ? { officialOur: data.optimizer?.[values.sku.trim()]?.our ?? '', officialMin: data.optimizer?.[values.sku.trim()]?.minimum ?? '',
+            our: data.optimizer?.[values.sku.trim()]?.our || row.our,
+            sourceOur: data.optimizer?.[values.sku.trim()]?.our || row.sourceOur } : {}
+      return { ...row, ...updated, ...official, approvedSkr: false, approvedSite: false }
     }))
   }
 
@@ -150,6 +156,13 @@ export default function Repricing() {
             }} />
             <div className="border-t border-border/60">
               <UploadBox step={2} label="Αρχείο ελαχίστων" accept=".xlsx" filename={minimums?.name} disabled={!!busy} onFile={(file) => changeFile(setMinimums, file)} />
+            </div>
+            <div className="border-t border-border/60">
+              <UploadBox step={3} label="Skroutz Price Optimizer · προαιρετικό" accept=".xlsx" filename={optimizer?.name}
+                disabled={!!busy} onFile={(file) => changeFile(setOptimizer, file)} />
+              {optimizer && <Button variant="ghost" disabled={!!busy} onClick={() => {
+                setOptimizer(undefined); setData(undefined); setRows([]); setDeleted([]); setExports({})
+              }}>Αφαίρεση αρχείου Skroutz</Button>}
             </div>
           </div>
           {busy && <LoadingState className="mt-4" title={busy} />}

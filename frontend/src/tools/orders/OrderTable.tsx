@@ -30,7 +30,8 @@ function Check({ state, delta }: { state: string; delta: number | null }) {
   </div>
 }
 
-export function OrderTable({ rows, suppliers, checked, onSelect, onChange, onSkuChange, onOffer, onRemove }: {
+export function OrderTable({ rows, suppliers, checked, onSelect, onChange, onSkuChange, onOffer, onRemove, renderHeader }: {
+  renderHeader: (title: string, index: number) => import('react').ReactNode
   rows: { draft: Draft; line: Line }[]
   suppliers: string[]
   checked: ReadonlySet<number>
@@ -49,8 +50,8 @@ export function OrderTable({ rows, suppliers, checked, onSelect, onChange, onSku
           <tr>{headers.map((header, i) => <th key={i} scope="col" className={`border-b border-border/65 bg-card px-2 py-3 ${i === 0 ? 'sticky left-0 z-10 border-r' : ''}`}>
             {i === 0 ? <label className="flex items-center gap-2">
               <SelectPage ids={rows.map(({ draft }) => draft.id)} checked={checked} onSelect={onSelect} />
-              {header}
-            </label> : header || <span className="sr-only">Ενέργειες</span>}
+            </label> : null}
+            {i < headers.length - 1 ? renderHeader(header, i) : <span className="sr-only">Ενέργειες</span>}
           </th>)}</tr>
         </thead>
         <tbody>

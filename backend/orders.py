@@ -29,7 +29,7 @@ SOURCE_FIELDS = {
     "salesRecent": {"salesRecent": ("Ποσότητα", "Πωλήσεις")},
     "salesOther": {"salesOther": ("Ποσότητα", "Πωλήσεις")},
     "costs": {"minBuy": ("MinBuyPrice",), "lastBuy": ("ΤΤΑ", "TTA")},
-    "skroutz": {"skroutz": ("Price Optimizer price", "Min Marketplace price")},
+    "skroutz": {"skroutz": ("Min Marketplace price", "Price Optimizer price")},
 }
 SOURCE_SHEETS = {"stock": "stock", "salesRecent": "sales", "salesOther": "Sheet5", "costs": "Sheet1", "skroutz": "skroutz"}
 
@@ -146,8 +146,8 @@ def parse_products(raw: bytes):
     return list(products.values()), includes_offers
 
 
-def catalog_data(products, db_path=None) -> dict:
-    if db_path is not None and products:
+def catalog_data(products, db_path=None, use_supplier_catalogs=True) -> dict:
+    if db_path is not None and products and use_supplier_catalogs:
         for supplier, latest in current_offers(db_path).items():
             for product in products:
                 product["offers"].pop(supplier, None)
@@ -177,7 +177,7 @@ def save_catalog(raw: bytes, path) -> dict:
             mappings = offer_mappings(raw, "Amardis")
             seed_mappings(path, [("Amardis", code, sku) for code, sku in mappings.items()])
         products = read_products(path)
-    return catalog_data(products, path)
+    return catalog_data(products, path, use_supplier_catalogs=not includes_offers)
 
 
 def market_prices(path) -> dict:

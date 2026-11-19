@@ -10,7 +10,7 @@ type ReportColumn = {
   read: (entry: Evaluated) => ReportCell
 }
 
-const priceColumns = new Set<Key>(['our', 'cheapest', 'minSkr', 'minSite', 'sourceOur', 'skrOverride', 'siteOverride', 'delta'])
+const priceColumns = new Set<Key>(['our', 'cheapest', 'minSkr', 'minSite', 'sourceOur', 'skrOverride', 'siteOverride', 'delta', 'officialOur', 'officialMin', 'repricingOur'])
 
 function asPrice(amount: number | null, fallback = ''): ReportCell {
   return amount === null ? fallback || null : amount / 100
@@ -37,6 +37,8 @@ function tableColumn(key: Key): ReportColumn {
 }
 
 const details: ReportColumn[] = [
+  { label: 'Πηγή πρότασης', format: 'text', width: 18, read: ({ result }) => result.source },
+  { label: 'Διαφωνία πηγών', format: 'text', width: 20, read: ({ result }) => result.conflict ? 'Ναι' : '' },
   { label: 'Μεταβολή %', format: 'percent', width: 15, read: ({ result }) => result.deltaPercent === null ? null : result.deltaPercent / 100 },
   { label: 'Έλεγχος ελαχ. Skroutz', format: 'text', width: 38, read: ({ result }) => floorLabels[result.skrCheck] },
   { label: 'Έλεγχος ελαχ. site', format: 'text', width: 38, read: ({ result }) => floorLabels[result.siteCheck] },

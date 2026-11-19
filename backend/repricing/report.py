@@ -4,13 +4,14 @@ from openpyxl.utils import get_column_letter
 
 
 FORMATS = {"text": "@", "price": "#,##0.00", "integer": "0", "percent": "0.0%"}
+MAX_REPORT_COLUMNS = 32
 
 
 def append_report(book, report: dict, total: int) -> None:
     if not isinstance(report, dict):
         raise ValueError("Μη έγκυρη αναλυτική αναφορά.")
     columns, rows = report.get("columns"), report.get("rows")
-    if (not isinstance(columns, list) or not 1 <= len(columns) <= 24
+    if (not isinstance(columns, list) or not 1 <= len(columns) <= MAX_REPORT_COLUMNS
             or not isinstance(rows, list) or len(rows) != total):
         raise ValueError("Μη έγκυρες στήλες ή γραμμές αναφοράς.")
 
